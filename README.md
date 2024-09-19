@@ -2,21 +2,51 @@
 
 BinSim is a python package for Binary Code Similarity Detection.
 It currently implements several neural network models for binary code similarity detection, including:
-1. [Gemini](https://arxiv.org/abs/1708.06525)     
-2. [SAFE](https://arxiv.org/abs/1811.05296)
-3. [i2v_rnn and i2v_att](https://ieeexplore.ieee.org/document/9797388)
-4. [jTrans](https://arxiv.org/abs/2205.12713)
-5. [alpha-diff](https://ieeexplore.ieee.org/document/9000005)
-6. [RCFG2Vec]()
-7. [Asteria](https://arxiv.org/abs/2108.06082)
-8. [GMN]()(not fully implemented)
-9. [jTrans]()(not fully implemented)
+1. Gemini [\[paper\]](https://arxiv.org/abs/1708.06525) [\[code\]](lib/binsim/neural/nn/model/gemini.py) 
+2. SAFE [\[paper\]](https://arxiv.org/abs/1811.05296) [\[code\]](lib/binsim/neural/nn/model/safe.py)
+3. GraphEmbed [\[paper\]](https://ieeexplore.ieee.org/document/9797388)[\[code\]](lib/binsim/neural/nn/model/i2v_rnn.py)
+4. jTrans [\[paper\]](https://arxiv.org/abs/2205.12713) [\[code\]](lib/binsim/neural/nn/model/jtrans.py)
+5. alpha-diff [\[paper\]](https://ieeexplore.ieee.org/document/9000005) [\[code\]](lib/binsim/neural/nn/model/alphadiff.py)
+6. RCFG2Vec [\[code\]](lib/binsim/neural/nn/model/rcfg2vec.py)
+7. Asteria [\[paper\]](https://arxiv.org/abs/2108.06082) [\[code\]](lib/binsim/neural/nn/model/treelstm.py)
+8. GMN(not fully implemented yet)
 
 It also implements several language models for binary code, including:
 
-1. [Asm2Vec](https://ieeexplore.ieee.org/document/8835340)
-2. [PalmTree]()(not implemented)
-3. [instruction2Vec]()(not implemented)
-4. [ins2vec]()(not implemented)
+1. Asm2Vec [\[paper\]](https://ieeexplore.ieee.org/document/8835340)
+2. [ins2vec]()(not fully implemented)
 
-We provide a simple guideline to reproduce the results in the paper, and you can get it from [here](guideline.md)
+
+# Installation
+### 0. System Requirements
+We have tested the code on `Ubuntu 22.04 LTS` with `Python 3.10`. 
+
+> Note: We have meet several problems when installing the python binding of `rocksdb` on other systems. Maybe compiling `rocksdb` from source code can solve the problem.
+
+We use [BinaryNinja](https://www.binary.ninja) and [IDA pro](https://hex-rays.com/IDA-pro/) to disassemble the binary code and extract necessary information. So before running the code, you should install them and have a valid license. Additionally, for binaryninja, you should install its python binding.
+
+### 1. Install Necessary Libraries
+Binsim depends on rocksdb to save training samples, so you should install it first.
+```shell
+sudo apt install build-essential
+sudo apt-get install libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev libgflags-dev
+sudo apt install librocksdb-dev
+```
+
+### 2. Install necessary Python packages
+After installing above libraries and packages, you can install necessary python packages with the following command:
+
+```shell
+pip install -r requirements.txt
+```
+> Note: The `dgl` package installed by the above command only supports `CPU`, if you want to install the `GPU` version, you need to use the command provided by its [official website](https://www.dgl.ai/pages/start.html).
+
+### 3. Install BinSim
+```shell
+pip install .
+```
+
+> Note: We have implemented an experimental PyTorch operator for TreeLSTM and DAGGRU, which can significantly speed up the training process. If you want to use it, you have to make sure the cuda is available and the `nvcc` is installed. 
+
+# Reproducing Experiments
+We provide a guideline for reproducing the experiments in our paper. You can find it [here](./Reproducing-Guildline.md).

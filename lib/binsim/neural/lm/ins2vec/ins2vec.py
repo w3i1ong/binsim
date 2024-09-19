@@ -1,17 +1,37 @@
-import os
-import shutil
-import gensim
-import pickle
-import torch
-from ..base import LanguageModelBase
+import os, time, torch, shutil, gensim, pickle
+import numpy as np
 from torch import nn, Tensor
+from ..base import LanguageModelBase
+from binsim.utils import init_logger
 from typing import List, Union, Tuple
+from gensim.models.callbacks import CallbackAny2Vec
+
+logger = init_logger(__name__)
+
+
+class EpochLogger(CallbackAny2Vec):
+    """Callback to log information about training"""
+
+    def __init__(self):
+        self.epoch = 0
+        self.start_time = None
+
+    def on_epoch_begin(self, model):
+        self.start_time = time.time()
+        print(f"Epoch #{self.epoch} start")
+
+    def on_epoch_end(self, model):
+        end_time = time.time()
+        duration = end_time - self.start_time
+        logger.info(f"Epoch #{self.epoch} end")
+        logger.info(f"Time taken for Epoch #{self.epoch}: {duration:.2f} seconds")
+        self.epoch += 1
 
 
 class Ins2vec(LanguageModelBase):
 
     def __init__(self, embed_dim=100,
-                 min_count=0,
+                 min_count=10,
                  window_size=8,
                  epoch=10,
                  workers=8,
@@ -58,12 +78,13 @@ class Ins2vec(LanguageModelBase):
         """
         assert os.path.exists(src_file), f'{src_file} does not exist.'
         if os.path.isfile(src_file):
+            logger.info(f"Training Word2Vec model with file: {src_file}")
             corpus_file = gensim.models.word2vec.LineSentence(src_file)
         elif os.path.isdir(src_file):
+            logger.info(f"Training Word2Vec model with directory: {src_file}")
             corpus_file = gensim.models.word2vec.PathLineSentences(src_file)
         else:
             raise ValueError('src_file must be a file or a directory')
-
         # train Word2Vec model with the generated corpus file
         model = gensim.models.Word2Vec(corpus_file,
                                        vector_size=self._embed_dim,
@@ -72,7 +93,8 @@ class Ins2vec(LanguageModelBase):
                                        epochs=self._epoch,
                                        workers=self._workers,
                                        sg=self._mode,
-                                       hs=self._hs)
+                                       hs=self._hs,
+                                       callbacks=[EpochLogger()])
         self._ins2idx = model.wv.key_to_index
         self._embeddings = model.wv.vectors
 
@@ -112,8 +134,12 @@ class Ins2vec(LanguageModelBase):
             result = pickle.load(f)
         return result
 
-    def as_torch_model(self, freeze=False) -> nn.Module:
-        return nn.Embedding.from_pretrained(Tensor(self._embeddings), freeze=freeze)
+    def as_torch_model(self, freeze=False, device=None, dtype=None):
+        from binsim.neural.nn.layer.embedding import SparseEmbedding
+        new_ins2idx = {}
+        for key, value in self._ins2idx.items():
+            new_ins2idx[int(key)] = value
+        return SparseEmbedding(self._embeddings, new_ins2idx, freeze=freeze, device=device, dtype=dtype)
 
     def encode(self, token_lists: List[List[str]], with_length=False) -> Tuple[Tensor, Tensor]:
         """

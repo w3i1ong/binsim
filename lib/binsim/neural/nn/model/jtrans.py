@@ -1,8 +1,7 @@
+import torch
 from transformers import BertModel
 from binsim.neural.nn.base.model import GraphEmbeddingModelBase
-from binsim.neural.nn.distance import CosineDistance, PairwiseCosineDistance
-from binsim.neural.nn.siamese import SiameseSampleFormat
-import torch
+from binsim.neural.nn.siamese.distance import CosineDistance
 
 
 class BinBertModel(BertModel):
@@ -13,21 +12,21 @@ class BinBertModel(BertModel):
 
 
 class JTrans(GraphEmbeddingModelBase):
-    def __init__(self, pretrained_weights: str, device=None, dtype=None, sampler=SiameseSampleFormat.Triplet):
-        super().__init__(sample_format=sampler)
+    def __init__(self, pretrained_weights: str, distance_func=None, device=None, dtype=None,
+                 freeze_cnt=10):
+        super().__init__(CosineDistance())
         self.model = BinBertModel.from_pretrained(pretrained_weights, device_map=device)
-        self.distance = CosineDistance()
-        self.pairwise_distance = PairwiseCosineDistance()
+        for param in self.model.embeddings.parameters():
+            param.requires_grad = False
+        if freeze_cnt != -1:
+            for layer in self.model.encoder.layer[:freeze_cnt]:
+                for param in layer.parameters():
+                    param.requires_grad = False
 
     @property
     def graphType(self):
         from binsim.disassembly.utils.globals import GraphType
         return GraphType.JTransSeq
-
-    @property
-    def pairDataset(self):
-        from binsim.neural.utils.data import JTransSeqSamplePairDataset
-        return JTransSeqSamplePairDataset
 
     @property
     def sampleDataset(self):
@@ -49,20 +48,14 @@ class JTrans(GraphEmbeddingModelBase):
 
     @staticmethod
     def from_pretrained(pretrained_weights: str, device=None):
-        return JTrans(pretrained_weights, device=device)
+        return JTrans(pretrained_weights, device=device, distance_func=CosineDistance())
 
     def save(self, filename: str):
-        self.model.save_pretrained(filename)
+        self.model.save_pretrained(filename, safe_serialization=True)
 
     def generate_embedding(self, token_id: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         return self.model(input_ids=token_id, attention_mask=mask).pooler_output
 
-    def similarity(self, samples: torch.Tensor) -> torch.Tensor:
-        samples = samples.reshape([len(samples) // 2, 2, -1])
-        return 1 - self.distance(samples[:, 0], samples[:, 1])
-
-    def pairwise_similarity(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return 1 - self.pairwise_distance(x, y)
 
     def triplet_loss(self, anchors: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor) -> torch.Tensor:
         good_sim = torch.cosine_similarity(anchors, positive)

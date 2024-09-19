@@ -1,0 +1,39 @@
+dataset:
+  type: TokenCFG
+  binary-dir: /path/to/your/root/dataset/binarycorp
+  dataset-dir: /path/to/your/root/processed-dataset/binarycorp/TokenCFG
+  middle-dir: /path/to/your/root/cache/middle/binarycorp/TokenCFG
+  cache-dir: /path/to/your/root/cache/database/binarycorp
+  remove-duplicate: True
+  occurrence-threshold: 0
+  arch:
+    - x64
+  compiler:
+    - gcc
+  subsets:
+    train:
+      - small_train
+    test:
+      - test
+
+disassemble:
+  extractor:
+    workers: 30
+    verbose: True
+    keep-thunk: False
+    keep-large: False
+    large-ins-threshold: 4000
+    large-graph-threshold: 300
+    keep-small: False
+    small-ins-threshold: 10
+    small-graph-threshold: 5
+    regenerate: True
+    incremental: False
+    checkpoint: False
+  normalizer-kwargs:
+    imm_threshold: 1024
+    offset_threshold: 1024
+
+log:
+  level: "info"
+  console: True

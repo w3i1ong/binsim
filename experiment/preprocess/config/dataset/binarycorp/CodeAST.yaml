@@ -1,0 +1,37 @@
+dataset:
+  type: CodeAST
+  binary-dir: /path/to/your/root/dataset/binarycorp
+  dataset-dir: /path/to/your/root/processed-dataset/binarycorp/CodeAST
+  middle-dir: /path/to/your/root/cache/middle/binarycorp/CodeAST
+  cache-dir: /path/to/your/root/cache/database/binarycorp
+  remove-duplicate: True
+  occurrence-threshold: 0
+  arch:
+    - x64
+  compiler:
+    - gcc
+  subsets:
+    train:
+      - small_train
+    test:
+      - test
+
+disassemble:
+  extractor:
+    ida_path: /path/to/ida/root
+    workers: 30
+    verbose: True
+    keep-thunk: False
+    keep-large: False
+    large-ins-threshold: 4000
+    large-graph-threshold: 300
+    keep-small: False
+    small-ins-threshold: 10
+    small-graph-threshold: 5
+    regenerate: True
+    incremental: False
+    checkpoint: False
+
+log:
+  level: "info"
+  console: True

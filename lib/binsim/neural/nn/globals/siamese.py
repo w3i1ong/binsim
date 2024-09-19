@@ -3,11 +3,25 @@ from enum import Enum
 
 class SiameseSampleFormat(Enum):
     Pair = 'pair'
-    SemiHardPair = 'semi-hard-pair'
+    PositivePair = "positive-pair"
+    PositivePairSplit = "positive-pair-split"
     Triplet = 'triplet'
-    SemiHardTriplet = 'semi-hard-triplet'
-    Proxy = 'proxy'
-    InfoNCESamples = 'info-nce-samples'
+    QueryTarget = 'query-target'
+
+    def __repr__(self):
+        return self.value
+
+    def __str__(self):
+        return self.value
+
+    def __format__(self, format_spec):
+        return self.value
+
+class EmbeddingDistanceMetric(Enum):
+    Cosine = 'cosine'
+    Euclidean = 'euclidean'
+    SelfDefined = 'self-defined'
+    AsteriaDistance = 'asteria'
 
     def __repr__(self):
         return self.value
@@ -20,7 +34,6 @@ class SiameseSampleFormat(Enum):
 
 
 class SiameseMetric:
-    ClassifyMetric = {'auc', 'roc'}
     SearchMetric = {'mrr', 'hit', 'recall', 'precision', 'ndcg'}
     def __init__(self, metric_str: str):
         self._metric_str = metric_str
@@ -29,18 +42,13 @@ class SiameseMetric:
         self.__init(metric_str)
 
     def __init(self, metric_str):
-        if '@' in metric_str:
-            self._is_search_metric = True
-            self._metric_str, self._top_value = metric_str.split('@')
-            self._metric_str = self._metric_str.lower()
-            self._top_value = int(self._top_value)
-            if self._metric_str not in SiameseMetric.SearchMetric or self._top_value <= 0:
-                raise ValueError(f"Invalid search metric: {self}")
-        else:
-            self._metric_str = metric_str.lower()
-            self._is_search_metric = False
-            if self._metric_str not in SiameseMetric.ClassifyMetric:
-                raise ValueError(f"Invalid classification metric: {self}")
+        assert '@' in metric_str
+        self._is_search_metric = True
+        self._metric_str, self._top_value = metric_str.split('@')
+        self._metric_str = self._metric_str.lower()
+        self._top_value = int(self._top_value)
+        if self._metric_str not in SiameseMetric.SearchMetric or self._top_value <= 0:
+            raise ValueError(f"Invalid search metric: {self}")
 
     def is_search_metric(self):
         return self._is_search_metric
@@ -69,16 +77,6 @@ class SiameseMetric:
 
     def __hash__(self):
         return hash(self.__repr__())
-
-    @classmethod
-    @property
-    def AUC(cls):
-        return SiameseMetric('AUC')
-
-    @classmethod
-    @property
-    def ROC(cls):
-        return SiameseMetric('ROC')
 
     @classmethod
     def MRR(cls, k):

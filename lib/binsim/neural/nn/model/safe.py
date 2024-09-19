@@ -8,14 +8,15 @@ from binsim.neural.nn.base.model import GraphEmbeddingModelBase
 
 class SAFE(GraphEmbeddingModelBase):
     def __init__(self, ins2vec: Ins2vec,
+                 distance_func,
                  out_dim: int = 100,
                  rnn_state_size: int = 50,
                  rnn_layers: int = 1,
                  attention_depth: int = 250,
                  attention_hops: int = 10,
                  dense_layer_size: int = 2000,
-                 sample_format=None,
-                 max_length=250,
+                 max_length=300,
+                 need_att_weights=False,
                  device=None,
                  dtype=None):
         """
@@ -30,11 +31,11 @@ class SAFE(GraphEmbeddingModelBase):
         :param attention_hops: The number of self-attention hops.
         :param dense_layer_size: The size of the dense layer.
         """
-        super(SAFE, self).__init__(sample_format=sample_format)
+        super(SAFE, self).__init__(distance_func=distance_func)
         factory_kwargs = {'device': device, 'dtype': dtype}
         if isinstance(ins2vec, str):
             ins2vec = Ins2vec.load(ins2vec)
-        self.instructions_embeddings = ins2vec.as_torch_model(freeze=True).to(device)
+        self.instructions_embeddings = ins2vec.as_torch_model(freeze=True, **factory_kwargs).to(device)
         ins2vec_dim = self.instructions_embeddings.embedding_dim
 
         self.bidirectional_rnn = torch.nn.GRU(
@@ -43,7 +44,7 @@ class SAFE(GraphEmbeddingModelBase):
             num_layers=rnn_layers,
             bias=True,
             batch_first=True,
-            dropout=0,
+            dropout=0.1,
             bidirectional=True,
             **factory_kwargs
         )
@@ -63,10 +64,8 @@ class SAFE(GraphEmbeddingModelBase):
             bias=False,
             **factory_kwargs
         )
-        self.loss_func = nn.MSELoss(reduction='mean')
         self._max_length = max_length
-        self.margin = 0.5
-
+        self.need_att_weights = need_att_weights
 
     @property
     def graphType(self):
@@ -74,20 +73,15 @@ class SAFE(GraphEmbeddingModelBase):
         return GraphType.TokenCFG
 
     @property
-    def pairDataset(self):
-        from binsim.neural.utils.data import InsStrSeqSamplePairDataset
-        return InsStrSeqSamplePairDataset
-
-    @property
     def sampleDataset(self):
-        from binsim.neural.utils.data import InsStrSeqSampleDataset
-        return InsStrSeqSampleDataset
+        from binsim.neural.utils.data import TokenSeqSampleDataset
+        return TokenSeqSampleDataset
 
     @staticmethod
     def generate_mask(lengths: torch.Tensor, device=None, dtype=None):
         max_length = torch.max(lengths).item()
         range_matrix = torch.arange(0, max_length).expand(lengths.shape[0], max_length)
-        return torch.lt(range_matrix, lengths.unsqueeze(1))
+        return torch.lt(range_matrix, lengths.unsqueeze(1)).to(dtype=dtype, device=device)
 
     def generate_embedding(self, instructions: torch.Tensor,
                            lengths: torch.Tensor) -> Union[
@@ -98,7 +92,7 @@ class SAFE(GraphEmbeddingModelBase):
         lengths = lengths.cpu()
 
         # generate mask for attention sum
-        mask = self.generate_mask(lengths).float().to(instructions.device)
+        mask = self.generate_mask(lengths, device=instructions.device, dtype=instructions.dtype)
         mask = torch.unsqueeze((1 - mask) * -1e6, dim=2)
 
         lengths, index = torch.sort(lengths, descending=True)
@@ -120,33 +114,10 @@ class SAFE(GraphEmbeddingModelBase):
 
         temp = torch.reshape(torch.matmul(weights, output), (weights.size(0), -1))  # shape: [batch, hop*hidden_dim]
         function_embedding = self.Wout2(torch.relu(self.Wout1(temp)))
-        if self.training:
+        if self.training and self.need_att_weights:
             return function_embedding, weights
         else:
             return function_embedding
-
-    def siamese_loss(self, embeddings: torch.Tensor, labels: torch.Tensor, sample_ids: torch.Tensor,
-                     *extra_args) -> torch.Tensor:
-        # weights = extra_args[0]
-        labels = torch.mul(torch.sub(labels, 0.5), 2)
-        # A_A_T = torch.bmm(weights, torch.permute(weights, (0, 2, 1))) - torch.unsqueeze(torch.eye(self.attention_hops, device=labels.device), dim=0)
-        # the original paper uses the following loss, but it performs bad in our experiments, so we remove the penalty term.
-        # return self.loss_func(labels, 1 - self.similarity(embeddings)) + torch.mean(torch.norm(A_A_T, 2, dim=(1,2)))
-        embeddings = torch.reshape(embeddings, [embeddings.shape[0] // 2, 2, -1])
-        sample1, sample2 = embeddings[:, 0], embeddings[:, 1]
-        return self.loss_func(torch.cosine_similarity(sample1, sample2), labels)
-
-    def similarity(self, samples: torch.Tensor) -> torch.Tensor:
-        samples = samples.view([len(samples) // 2, 2, -1])
-        return 1 - torch.cosine_similarity(samples[:, 0], samples[:, 1])
-
-    def pairwise_similarity(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        x = x / torch.sqrt(torch.sum(x ** 2, dim=1, keepdim=True) + torch.tensor(1e-08, device=x.device))
-        y = y / torch.sqrt(torch.sum(y ** 2, dim=1, keepdim=True) + torch.tensor(1e-08, device=x.device))
-        return 1 - x @ y.T
-
-    def triplet_loss(self, anchors: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
 
     @property
     def parameter_statistics(self):

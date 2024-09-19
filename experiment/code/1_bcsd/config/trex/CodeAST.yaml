@@ -1,0 +1,61 @@
+name: Asteria
+
+common:
+  record-dir: "/path/to/your/root/binsim-record/trex/Asteria"
+  log:
+    level: "info"
+    file: True
+
+model:
+  type: "Asteria"
+  kwargs:
+    out_dim: 128
+    use_fast: False
+
+  distance:
+    type: 'asteria-distance'
+    kwargs:
+      embed_size: 128
+
+dataset:
+  type: 'CodeAST'
+  path: '/path/to/your/root/processed-dataset/trex/CodeAST'
+  name: 'default'
+  small-graph-threshold: 5
+  kwargs:
+    use_fast: False
+
+
+train:
+  general:
+    epoch: 50
+    backward-steps: 1
+    gpu: 0
+    num-workers: 20
+    batch-size: 512
+    choice-metric: 'nDCG@4'
+    use-momentum-model: False
+    queue-max-size: 4000
+
+  sampler:
+    dataset-sample-format: 'pair'
+    kwargs:
+
+  loss:
+    type: "asteria-loss"
+    kwargs:
+
+  optimizer:
+    type: 'adam'
+    lr: 0.001
+    kwargs:
+    lr-update-epoch:
+    lr-update-scale:
+
+  evaluation:
+    # It is too slow to evaluate Asteria on the validation set, so we use a large validation interval to save money ~_~
+    val-interval: 10
+    batch-size: 2000
+    metrics:
+      - 'recall@1'
+      - 'nDCG@4'

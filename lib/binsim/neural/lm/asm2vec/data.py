@@ -1,10 +1,9 @@
 import pickle
 import random
-from binsim.disassembly.binaryninja import TokenCFG
+from binsim.disassembly.backend.binaryninja import TokenCFG
 from gensim.models.asm2vec import Function
 from typing import List, Generator
 from .utils import bb2Inst
-from binsim.disassembly.binaryninja.core import TokenCFGDataForm
 
 MAX_WORDS_IN_BATCH = 10000
 
@@ -74,7 +73,6 @@ class NamedTokenCFGs(object):
 
     def __iter__(self) -> Generator[Function, None, None]:
         for cfg, name in zip(self.cfgs, self.names):
-            cfg.data_form = TokenCFGDataForm.TokenGraph
             for seq in cfg.random_walk(walk_num=self.random_walk_num,
                                        max_walk_length=self.max_sequence_length,
                                        edge_coverage=self.edge_coverage,

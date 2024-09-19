@@ -1,12 +1,9 @@
-import dgl
-import torch
+import dgl, torch
 from torch import nn
-from binsim.neural.nn.base.model import GraphMatchingModelBase
 from typing import Tuple, Any
 import dgl.function as fn
 from dgl.udf import EdgeBatch
-from binsim.neural.nn.distance import PairwiseEuclidianDistance,\
-    EuclidianDistance
+from binsim.neural.nn.base.model import GraphMatchingModelBase
 
 
 class GraphMatchingLayer(nn.Module):

@@ -1,16 +1,16 @@
 dataset:
-  name: default
   type: JTransSeq
-  binary: /home/anonymous/Documents/binsim-dataset/original/trex
-  dataset: /home/anonymous/Documents/binsim-dataset/processed/trex
-
-merge:
-  name: default
-  remove-duplicate: False
-  small-graph-threshold: 5
-  large-graph-threshold: 700
+  binary-dir: /path/to/your/root/dataset/trex
+  dataset-dir: /path/to/your/root/processed-dataset/trex/JTransSeq
+  middle-dir: /path/to/your/root/cache/middle/trex/JTransSeq
+  cache-dir: /path/to/your/root/cache/database/trex
+  remove-duplicate: True
   occurrence-threshold: 0
-  subset:
+  arch:
+    - x64
+  compiler:
+    - ukn-ukn
+  subsets:
     train:
       - binutils
       - curl
@@ -24,26 +24,29 @@ merge:
       - sqlite
       - findutils
     test:
-      trex:
-        "./trex-jTrans.yaml"
-  arch:
-    - x64
-
+      - openssl
+      - zlib
+      - diffutils
 
 disassemble:
-  ida_path: F:\asm2vec\ida75
-  workers: 5
-  verbose: True
-  keep-thunk: False
-  keep-large: False
-  large-ins-threshold: 1000000
-  large-graph-threshold: 700
-  keep-small: False
-  small-ins-threshold: 10
-  small-graph-threshold: 3
-  reanalysis: False
-  arch:
-    - x64
+  extractor:
+    ida_path: /path/to/ida/root
+    workers: 30
+    verbose: True
+    keep-thunk: False
+    keep-large: False
+    large-ins-threshold: 4000
+    large-graph-threshold: 300
+    keep-small: False
+    small-ins-threshold: 10
+    small-graph-threshold: 5
+    regenerate: True
+    incremental: False
+    checkpoint: False
+    debug: False
+  normalizer-kwargs:
+    max-length: 512
+
 
 log:
   level: "info"

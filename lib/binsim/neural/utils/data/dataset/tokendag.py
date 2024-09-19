@@ -1,13 +1,9 @@
-from torch import Tensor
-import numpy as np
-from binsim.disassembly.binaryninja import TokenCFG, TokenCFGDataForm
-from typing import List, Tuple, Dict, Any, Generator, Union
-from dgl import DGLGraph, DGLHeteroGraph
 import dgl
 import torch
-import pickle
+from binsim.disassembly.backend.binaryninja import TokenCFG
+from typing import List, Tuple, Dict, Any, Generator, Union
+from dgl import DGLGraph, DGLHeteroGraph
 from .datasetbase import SampleDatasetBase, RandomSamplePairDatasetBase
-from itertools import chain
 
 
 class TokenDAGSampleDataset(SampleDatasetBase):

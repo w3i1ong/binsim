@@ -1,0 +1,36 @@
+model:
+  model-source: 'pretrained'
+  pretrained-weights: '/path/to/your/root/processed-dataset/models/jTrans-finetune'
+general:
+  gpu: 0
+  random-seed: 0
+  mixed-precision: False
+  num-workers: 10
+  test-times: 10
+  pool-size: 10000
+  batch-size: 500
+evaluation:
+  metrics:
+    - 'recall@1'
+  options:
+    cross-compiler-O0-O3:
+      - 'x64:linux:gcc:O0'
+      - 'x64:linux:gcc:O3'
+    cross-compiler-O1-O3:
+      - 'x64:linux:gcc:O1'
+      - 'x64:linux:gcc:O3'
+    cross-compiler-O2-O3:
+      - 'x64:linux:gcc:O2'
+      - 'x64:linux:gcc:O3'
+    cross-compiler-O0-Os:
+      - 'x64:linux:gcc:O0'
+      - 'x64:linux:gcc:Os'
+    cross-compiler-O1-Os:
+      - 'x64:linux:gcc:O1'
+      - 'x64:linux:gcc:Os'
+    cross-compiler-O2-Os:
+      - 'x64:linux:gcc:O2'
+      - 'x64:linux:gcc:Os'
+    cross-compiler-O3-Os:
+      - 'x64:linux:gcc:O3'
+      - 'x64:linux:gcc:Os'

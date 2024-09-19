@@ -29,22 +29,22 @@ def search(src_embeddings: torch.Tensor,
      id of target embedding whose similarity to i-th embedding is the j-th largest.
     """
     # Calculate the distance between embeddings and target embeddings.
-    embedding_data = DataLoader(TensorDataset(src_embeddings, src_ids), batch_size=batch_size, shuffle=False)
+    target_batch_size = 100000
+    src_data = DataLoader(TensorDataset(src_embeddings.to(device), src_ids.to(device)), batch_size=batch_size, shuffle=False)
     target_embedding, target_ids = target_embedding.to(device), target_ids.to(device)
-    top_id_list = []
-    search_result_num = []
+    answer_num = torch.zeros((len(src_ids),), device=device, dtype=torch.int64)
+    top_ids = torch.zeros((len(src_ids), top_k), device=device, dtype=torch.int64)
     if verbose:
-        embedding_data = tqdm(embedding_data)
-    for src_embedding, src_id in embedding_data:
-        src_embedding = src_embedding.to(device)
-        pair_similarity = pair_sim_func(src_embedding, target_embedding)
+        src_data = tqdm(src_data)
+    for i, (src_embedding, src_id) in enumerate(src_data):
+        pair_similarity = torch.zeros((len(src_embedding), len(target_embedding)), device=device, dtype=src_embedding.dtype)
+        for j in range(0, len(target_embedding), target_batch_size):
+            pair_similarity[:, j:j+target_batch_size] = \
+                pair_sim_func(src_embedding, target_embedding[j:j+target_batch_size])
         _, batch_top_idx = torch.topk(pair_similarity, top_k, 1, largest=False)
-        top_id_list.append(batch_top_idx)
-        search_result_num.append(torch.sum(torch.eq(src_ids.reshape((1, -1)), src_id.reshape((-1, 1))), dim=1))
-
-    top_ids = torch.cat(top_id_list, dim=0)
-    search_result_num = torch.cat(search_result_num, dim=0)
-    return top_ids, search_result_num
+        top_ids[i*batch_size:(i+1)*batch_size] = batch_top_idx
+        answer_num[i*batch_size: (i+1) *batch_size] = (src_id[:, None] == target_ids[None]).sum(dim=1)
+    return top_ids, answer_num
 
 
 @torch.no_grad()
@@ -87,11 +87,10 @@ def calculate_topk_recall(result: torch.Tensor,
                           ignore_first=False) -> float:
     assert top_k + ignore_first <= result.shape[1]
     result = result[:, :top_k + ignore_first]
-    answer_num = torch.clip(answer_num, 0, top_k)
-    TP = result.sum().cpu().item()
-    if ignore_first:
-        TP -= torch.max(result, dim=1)[0].sum().cpu().item()
-    return TP / answer_num.sum().cpu().item()
+    answer_num = torch.clip(answer_num, 0, top_k + int(ignore_first)) - int(ignore_first)
+    TP = result.sum(dim=1) - int(ignore_first)
+    TP = torch.clip(TP,0)
+    return (TP / answer_num)[answer_num>0].mean().cpu().item()
 
 
 @torch.no_grad()
@@ -129,7 +128,7 @@ def calculate_topk_nDCG(result: torch.Tensor,
                         ignore_first=False) -> float:
     assert top_k + ignore_first <= result.shape[1]
     result = result[:, :top_k + ignore_first]
-    answer_num = torch.clip(answer_num, 0, top_k)
+    answer_num = torch.clip(answer_num, 0, top_k + int(ignore_first))
     max_answer_num = torch.max(answer_num)
     IDCG_weights = torch.log2(torch.arange(2, max_answer_num + 2, device=result.device)).reciprocal()
     torch.cumsum(IDCG_weights, dim=0, out=IDCG_weights)

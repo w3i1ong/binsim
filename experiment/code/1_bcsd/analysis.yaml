@@ -1,6 +1,17 @@
 results:
-  alpha-diff: "./record/alpha-diff"
-  Gemini: "./record/gemini"
-  SAFE: "./record/safe"
-  GraphEmbed: "./record/i2v-rnn"
-  RCFG2Vec: "./record/rcfg2vec-100"
+  # for BinaryCorp dataset
+  alpha-diff: "/path/to/your/root/binsim-record/binarycorp/alpha-diff"
+  Gemini: "/path/to/your/root/binsim-record/binarycorp/gemini"
+  SAFE: "/path/to/your/root/binsim-record/binarycorp/safe"
+  GraphEmbed: "/path/to/your/root/binsim-record/binarycorp/i2v-rnn"
+  RCFG2Vec: "/path/to/your/root/binsim-record/binarycorp/rcfg2vec"
+  Asteria: "/path/to/your/root/binsim-record/binarycorp/Asteria"
+  jTrans: "/path/to/your/root/binsim-record/binarycorp/jTrans"
+  # for Trex dataset
+  alpha-diff-trex: "/path/to/your/root/binsim-record/trex/alpha-diff"
+  Gemini-trex: "/path/to/your/root/binsim-record/trex/gemini"
+  SAFE-trex: "/path/to/your/root/binsim-record/trex/safe"
+  GraphEmbed-trex: "/path/to/your/root/binsim-record/trex/i2v-rnn"
+  RCFG2Vec-trex: "/path/to/your/root/binsim-record/trex/rcfg2vec"
+  Asteria-trex: "/path/to/your/root/binsim-record/trex/Asteria"
+  jTrans-trex: "/path/to/your/root/binsim-record/trex/jTrans"

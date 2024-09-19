@@ -8,7 +8,7 @@ from ..base import LanguageModelBase
 from torch import nn, Tensor
 from typing import List, Union, Tuple, Iterable
 from gensim.models.asm2vec import Asm2Vec as Asm2VecModel, Function, Instruction
-from binsim.disassembly.binaryninja import TokenCFG
+from binsim.disassembly.backend.binaryninja import TokenCFG
 from .data import ListFunctionFromFile, ListFunctionFromFiles
 from typing import Iterator
 # get pack_padded_sequence and pad_packed_sequence

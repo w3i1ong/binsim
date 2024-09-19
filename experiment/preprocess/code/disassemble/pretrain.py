@@ -2,21 +2,17 @@ import os
 import yaml
 import argparse
 from binsim.neural.lm.ins2vec import Ins2vec
-from binsim.fs.corpus import CorpusDir
-from binsim.disassembly.binaryninja.core import TokenCFGDataForm
 
 
-def train_ins2vec(config):
-    model_config, dataset_config = config['model'], config['dataset']
+def train_word2vec(config):
+    model_config = config['model']
     model_kwargs = model_config['model_kwargs']
+    corpus, model_file = model_config["corpus"], model_config["model-file"]
+    save_dir = os.path.dirname(model_file)
     model = Ins2vec(**model_kwargs)
-    corpus_dir = CorpusDir(dataset_config['corpus'], dataset_config['name'], dataset_config['type'],
-                           dataset_config['data-form'].value)
-    save_dir = f'{corpus_dir.model_dir}/ins2vec'
-    corpus_file_dir = corpus_dir.corpus_dir
     os.makedirs(save_dir, exist_ok=True)
-    model.train(corpus_file_dir)
-    model.save(os.path.join(save_dir, 'all-in-one.wv'))
+    model.train(corpus)
+    model.save(model_file)
 
 
 def init_jtrans_parser(parser):
@@ -47,38 +43,20 @@ def parse_args():
     return parser.parse_args()
 
 
-def check_dataset_config(dataset_config):
-    assert 'corpus' in dataset_config, 'The corpus of the dataset is not specified.'
-    assert os.path.exists(
-        dataset_config['corpus']), f"The corpus of the dataset does not exist: {dataset_config['corpus']}"
-    assert 'type' in dataset_config, 'The type of the dataset is not specified.'
-    dataset_type = dataset_config['type']
-    assert dataset_type in ['InsCFG', 'TokenCFG'], f"Unknown dataset type: {dataset_type}, " \
-                                                   f"supported types are {{InsCFG, TokenCFG}}."
-    assert 'name' in dataset_config, 'The name of the dataset is not specified.'
-    corpus_dir = os.path.join(dataset_config['corpus'], 'data', dataset_type, dataset_config['name'])
-    assert os.path.exists(
-        corpus_dir), f"There is no {dataset_type} corpus named {dataset_config['name']} in {dataset_config['corpus']}"
-
-    data_form = TokenCFGDataForm(dataset_config.get('data-form', TokenCFGDataForm.InsStrSeq))
-    dataset_config['data-form'] = data_form
-
-
 def check_model_config(model_config):
     assert 'name' in model_config, 'The name of the model is not specified.'
     model_name = model_config['name']
     assert model_name in ['ins2vec', 'jtrans', 'palm-tree', 'bert'], f"Unknown model: {model_name}, " \
                                                                      f"supported models are {{ins2vec, jtrans, palm-tree, bert}}."
-    model_config['train-per-arch'] = model_config.get('train-per-arch', False)
     model_config['model_kwargs'] = model_config.get('model_kwargs', {})
+    assert "corpus" in model_config, 'The corpus is not specified.'
+    assert os.path.exists(model_config["corpus"]), f"The corpus file {model_config['corpus']} does not exist."
+    assert "model-file" in model_config, 'The model file is not specified.'
 
 
 def load_and_check_config(config):
     with open(config) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
-    assert 'dataset' in config, 'The dataset is not specified.'
-    check_dataset_config(config['dataset'])
-
     assert 'model' in config, 'The model is not specified.'
     check_model_config(config['model'])
     return config
@@ -89,7 +67,7 @@ def main():
     config = load_and_check_config(args.config)
     pretrained_model = config['model']['name']
     if pretrained_model == 'ins2vec':
-        train_ins2vec(config)
+        train_word2vec(config)
     elif pretrained_model == 'jtrans':
         raise NotImplementedError()
     elif pretrained_model == 'palm-tree':

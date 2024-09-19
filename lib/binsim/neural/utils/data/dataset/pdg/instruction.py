@@ -1,7 +1,7 @@
 from abc import ABC
 import numpy as np
 import torch
-from binsim.disassembly.binaryninja import BSInsOperandType, BSInstruction
+from binsim.disassembly.backend.binaryninja import BSInsOperandType, BSInstruction
 from binsim.utils import diagonalize_matrices
 from collections import defaultdict
 from typing import List, Dict, Any, Tuple, Union

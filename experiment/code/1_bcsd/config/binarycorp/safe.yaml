@@ -1,0 +1,60 @@
+name: safe
+
+common:
+  record-dir: "/path/to/your/root/binsim-record/binarycorp/safe"
+  log:
+    level: "info"
+    file: True
+
+model:
+  type: "SAFE"
+  kwargs:
+    ins2vec: "/path/to/your/root/processed-dataset/binarycorp/TokenSeq/ins2vec-default.pkl"
+    out-dim: 128
+    rnn_state_size: 50
+    rnn_layers: 1
+    need_att_weights: false
+  distance:
+    type: 'cosine'
+
+dataset:
+  type: 'TokenSeq'
+  path: '/path/to/your/root/processed-dataset/binarycorp/TokenSeq'
+  name: 'default'
+  small-graph-threshold: 5
+
+
+train:
+  general:
+    epoch: 50
+    backward-steps: 1
+    gpu: 0
+    mixed-precision: False
+    num-workers: 20
+    batch-size: 250
+    choice-metric: 'nDCG@4'
+    use-momentum-model: False
+    queue-max-size: 4000
+
+  sampler:
+    dataset-sample-format: 'pair'
+    type:
+    kwargs:
+
+  loss:
+    type: "mse"
+    kwargs:
+
+  optimizer:
+    type: 'adam'
+    lr: 0.001
+    kwargs:
+    lr-update-epoch:
+    lr-update-scale:
+
+  evaluation:
+    val-interval: 5
+    batch-size: 2000
+    metrics:
+      - 'recall@1'
+      - 'nDCG@4'

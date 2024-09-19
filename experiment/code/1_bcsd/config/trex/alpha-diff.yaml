@@ -1,0 +1,61 @@
+name: AlphaDiff
+
+common:
+  record-dir: "/path/to/your/root/binsim-record/trex/alpha-diff"
+  log:
+    level: "info"
+    file: True
+
+model:
+  type: "AlphaDiff"
+  kwargs:
+    out_dim: 64
+    epsilon: 0.75
+
+  distance:
+    type: 'euclid'
+
+dataset:
+  type: 'ByteCode'
+  path: '/path/to/your/root/processed-dataset/trex/ByteCode'
+  name: 'default'
+  small-graph-threshold: 5
+  kwargs:
+
+
+train:
+  general:
+    epoch: 50
+    backward-steps: 1
+    gpu: 0
+    num-workers: 20
+    batch-size: 100
+    choice-metric: 'nDCG@16'
+    use-momentum-model: False
+    queue-max-size: 4000
+
+  sampler:
+    dataset-sample-format: "positive-pair"
+    type: semi-hard-triplet
+    kwargs:
+      margin: 1
+
+  loss:
+    type: "triplet"
+    kwargs:
+      margin: 1
+
+  optimizer:
+    type: 'RMSProp'
+    lr: 0.001
+    kwargs:
+      alpha: 0.9
+    lr-update-epoch:
+    lr-update-scale:
+
+  evaluation:
+    val-interval: 5
+    batch-size: 1000
+    metrics:
+      - 'recall@1'
+      - 'nDCG@16'

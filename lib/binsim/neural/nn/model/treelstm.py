@@ -1,8 +1,9 @@
-import dgl
-import torch
+import dgl, torch
 import torch.nn as nn
-from binsim.neural.nn.base.model import GraphEmbeddingModelBase
 from collections import defaultdict
+from binsim.neural.nn.layer.dagnn.treelstm import FastTreeLSTM
+from binsim.neural.nn.layer.dagnn.utils.utils import prepare_update_information_for_faster_forward
+from binsim.neural.nn.base.model import GraphEmbeddingModelBase
 
 class AsteriaDistance(nn.Module):
     def __init__(self, in_dim, device=None, dtype=None):
@@ -42,24 +43,26 @@ class AsteriaDistance(nn.Module):
 
 
 class ChildSumTreeLSTM(GraphEmbeddingModelBase):
-    def __init__(self, in_dim=16, vocab_size=200, out_dim=200, sample_format=None, device=None, dtype=None):
-        super(ChildSumTreeLSTM, self).__init__(sample_format=sample_format)
+    def __init__(self, distance_func, in_dim=16, use_fast=False,
+                 vocab_size=200, out_dim=200, device=None, dtype=None):
+        if isinstance(distance_func, nn.Module):
+            distance_func = distance_func.to(device)
+        super(ChildSumTreeLSTM, self).__init__(distance_func=distance_func)
         factory_kwargs = {'device': device, 'dtype': dtype}
         self.device = device
         self.in_dim = in_dim
         self.hidden_dim = out_dim
+        self.use_fast = use_fast
         # initialize token embedding
         self.embedding = nn.Embedding(vocab_size, self.in_dim, **factory_kwargs)
-        self.cell = nn.LSTMCell(in_dim, out_dim, False, **factory_kwargs)
-        self.distance_func = AsteriaDistance(out_dim, **factory_kwargs)
+        if use_fast:
+            self.cell = FastTreeLSTM(in_dim=in_dim, hidden_dim=out_dim, **factory_kwargs)
+        else:
+            self.cell = nn.LSTMCell(in_dim, out_dim, False, **factory_kwargs)
 
     @property
     def graphType(self):
         raise NotImplementedError("graphType has not been implemented for ChildSumTreeLSTM")
-
-    @property
-    def pairDataset(self):
-        raise NotImplementedError("pairDataloader has not been implemented for ChildSumTreeLSTM")
 
     @property
     def sampleDataset(self):
@@ -87,7 +90,20 @@ class ChildSumTreeLSTM(GraphEmbeddingModelBase):
                                          torch.tensor(edge_dst, device=g.device))))
         return forward_update_info
 
-    def generate_embedding(self, graph: dgl.DGLGraph, inputs: torch.Tensor, callee_num: torch.Tensor, root_idx)\
+    def generate_embedding(self, graph, inputs, callee_num, root_idx) -> torch.Tensor:
+        if self.use_fast:
+            embeds = self.embedding(inputs)
+            return self.fast_generate_embedding(graph, embeds, callee_num, root_idx)
+        else:
+            return self.slow_generate_embedding(graph, inputs, callee_num, root_idx)
+
+    def fast_generate_embedding(self, graph, inputs: torch.Tensor, callee_num: torch.Tensor, root_idx)\
+            -> torch.Tensor:
+        embeddings = self.cell(graph, inputs)
+        function_embedding = embeddings[root_idx]
+        return torch.cat([function_embedding, callee_num[:, None]], dim=1)
+
+    def slow_generate_embedding(self, graph: dgl.DGLGraph, inputs: torch.Tensor, callee_num: torch.Tensor, root_idx)\
             -> torch.Tensor:
         # feed embedding
         embeds = self.embedding(inputs)
@@ -113,29 +129,8 @@ class ChildSumTreeLSTM(GraphEmbeddingModelBase):
                 last_node_h.index_add_(0, dst, message_h)
                 last_node_c.index_add_(0, dst, message_c)
         function_embedding = h[root_idx]
-        return torch.cat([function_embedding, callee_num.reshape([-1,1])], dim=1)
+        return torch.cat([function_embedding, callee_num[:, None]], dim=1)
 
-    def siamese_loss(self, samples: torch.Tensor, labels: torch.Tensor, sample_ids: torch.Tensor) -> torch.Tensor:
-        samples = samples.reshape([labels.shape[0], 2, -1])
-        return self.distance_func.siamese_loss(samples[:, 0], samples[:, 1], labels)
-
-    def triplet_loss(self, anchors: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError("Triplet loss is not implemented for TreeLSTM!")
-
-    def similarity(self, samples: torch.Tensor) -> torch.Tensor:
-        samples = samples.reshape([samples.shape[0] // 2, 2, -1])
-        return self.distance_func.distance(samples[:, 0], samples[:, 1])
-
-    def similarity_between_original(self, samples):
-        embeddings = self.generate_embedding(*samples)
-        return self.similarity(embeddings)
-
-    def pairwise_similarity(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return self.distance_func.pairwise_distance(embeddings1=x, embeddings2=y)
-
-    def pairwise_similarity_between_original(self, samples_x, samples_y):
-        embeddings_x, embeddings_y = self.generate_embedding(*samples_x), self.generate_embedding(*samples_y)
-        return self.pairwise_similarity(embeddings_x, embeddings_y)
 
     @property
     def parameter_statistics(self):

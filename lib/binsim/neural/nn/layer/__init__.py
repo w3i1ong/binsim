@@ -1,6 +1,6 @@
 from .dense import Dense
 from .structure2vec import Structure2vec
-from .daggru import DAGGRU
-from .multi_head_attention import MultiHeadAttention
-from .transformer import TransformerEncoderLayer
+from .dagnn import DAGGRU, FastDAGGRU
+from .transformer import TransformerEncoderLayerVarLen, GraphTransformerEncoderLayer
 from .ins_embedding import InstructionEmbedding
+

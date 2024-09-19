@@ -1,5 +1,5 @@
 from abc import abstractmethod, ABC
-from torch import Tensor, nn
+from torch import nn
 
 
 class LanguageModelBase(ABC):

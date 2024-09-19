@@ -1,0 +1,68 @@
+name: rcfg2vec
+
+common:
+  record-dir: "/path/to/your/root/record/trex/rcfg2vec"
+  log:
+    level: "info"
+    file: True
+
+model:
+  type: "RCFG2Vec"
+  kwargs:
+    vocab_size: 2000
+    in-dim: 150
+    embed-dim: 100
+    dag-gru-bidirectional: True
+    gru-bidirectional: True
+    layer_num: 1
+    use_fast: False
+  distance:
+    type: 'cosine'
+
+dataset:
+  type: 'InsCFG'
+  path: '/path/to/your/root/processed-dataset/trex/InsDAG'
+  name: 'default'
+  small-graph-threshold: 5
+  kwargs:
+    expand-time: 0
+    max_seq_length: 150
+    use_dag: True
+    chunks: 10
+    fast_dag: False
+
+
+train:
+  general:
+    epoch: 50
+    backward-steps: 1
+    gpu: 0
+    num-workers: 20
+    batch-size: 1000
+    choice-metric: 'nDCG@16'
+    use-momentum-model: False
+    queue-max-size: 4000
+
+  sampler:
+    dataset-sample-format: 'positive-pair'
+    kwargs:
+
+  loss:
+    type: "info-nce-loss"
+    kwargs:
+      temperature: 0.07
+
+  optimizer:
+    type: 'adamW'
+    lr: 0.001
+    kwargs:
+    lr-update-epoch: 2
+    lr-update-scale: 0.5
+
+
+  evaluation:
+    val-interval: 5
+    batch-size: 2000
+    metrics:
+      - 'recall@1'
+      - 'nDCG@16'

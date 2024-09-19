@@ -1,21 +1,19 @@
+import shutil
 import time
-
 import torch
-from torch import Tensor
-import numpy as np
-from typing import Tuple, List, Iterable, Set, Union, Any
-from torch.utils.data import DataLoader
-from torch.cuda.amp import autocast as autocast, GradScaler
-from torch.optim import Adam
-from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, roc_curve
 import pickle
-from tqdm import tqdm
-from binsim.neural.nn.metric import *
 import logging
+from tqdm import tqdm
+from torch import Tensor
+from torch.optim import Adam
+from collections import defaultdict
+from torch.utils.data import DataLoader
+from typing import Tuple, List, Iterable, Set, Union, Any
+from binsim.neural.nn.metric import *
 from binsim.neural.nn.base.model import GraphEmbeddingModelBase, GraphMatchingModelBase
+from binsim.utils import get_loss_by_name
 from binsim.neural.utils import SampleDatasetBase, RandomSamplePairDatasetBase
 from binsim.neural.nn.globals.siamese import *
-from collections import defaultdict
 
 logger = logging.getLogger('Siamese')
 logger.setLevel(logging.DEBUG)
@@ -24,14 +22,46 @@ handler.setLevel(logging.DEBUG)
 handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - [%(levelname)s]: %(message)s'))
 logger.addHandler(handler)
 
+class EmbeddingQueue:
+    def __init__(self, max_samples):
+        self._capacity = max_samples
+        self._data = None
+        self._full = False
+        self._index = 0
+
+    def put(self, sample):
+        if self._data is None:
+            self._data = torch.zeros((self._capacity, sample.shape[1]), device=sample.device, dtype=sample.dtype)
+        if self._index + sample.size(0) >= self._capacity:
+            self._full = True
+        assert len(sample) <= self._capacity, "The sample size is larger than the capacity of the queue."
+        if self._index + sample.size(0) <= self._capacity:
+            self._data[self._index:self._index + sample.size(0)] = sample
+        else:
+            left = self._capacity - self._index
+            self._data[self._index:] = sample[:left]
+            self._data[:sample.size(0) - left] = sample[left:]
+        self._index = (self._index + sample.size(0)) % self._capacity
+
+
+    def get_tensors(self):
+        if self._full:
+            return self._data
+        else:
+            return self._data[:self._index]
+
+    def empty(self):
+        return not self._full and self._index == 0
+
 
 class Siamese(object):
     def __init__(self,
                  model: GraphEmbeddingModelBase,
                  optimizer=Adam,
-                 mixed_precision=False,
                  device='cpu',
-                 sample_format=SiameseSampleFormat.Pair):
+                 sample_format=SiameseSampleFormat.Pair,
+                 sampler=None,
+                 momentum_model=None):
         """
         Initialize models, loss, sample method and optimizer for our siamese.
         :param model: the first model. It takes a batch of samples as input,
@@ -43,12 +73,18 @@ class Siamese(object):
         self._device = device
         self._model = model
         self._optimizer = optimizer
-        self._mixed_precision = mixed_precision
         self._sample_format = sample_format
+        self._sampler = sampler
+        self._momentum_model = momentum_model
+        self._target_queue = None
 
     @property
     def model(self) -> Union[GraphEmbeddingModelBase, GraphMatchingModelBase]:
         return self._model
+
+    @property
+    def use_momentum_model(self):
+        return self._momentum_model is not None
 
     @model.setter
     def model(self, model: Union[GraphEmbeddingModelBase, GraphMatchingModelBase]):
@@ -81,35 +117,63 @@ class Siamese(object):
         result = self._model.parameters()
         return result
 
-    def forward(self, samples, labels, sample_ids) -> torch.Tensor:
-        samples = tuple(sample.to(self._device) if hasattr(sample, 'to') else sample for sample in samples)
+    def forward(self, samples, labels, sample_ids, loss_func) -> torch.Tensor:
         labels = labels.to(self._device)
-        return self.model(samples, labels, sample_ids)
+        if self._momentum_model is not None:
+            query, target = samples
+            with torch.no_grad():
+                target = tuple(sample.to(self._device) if hasattr(sample, 'to') else sample for sample in target)
+                target_embedding = self._momentum_model(target)
+            query = tuple(sample.to(self._device) if hasattr(sample, 'to') else sample for sample in query)
+            query_embedding = self.model(query)
+            if not self._target_queue.empty():
+                extra_target_embeddings = self._target_queue.get_tensors()
+                target_embeddings = torch.cat([target_embedding, extra_target_embeddings], dim=0)
+            else:
+                target_embeddings = target_embedding
+            target_ids = torch.arange(0, len(query_embedding), device=self._device)
+            self._target_queue.put(target_embedding)
+            return loss_func((query_embedding, target_embeddings), target_ids,
+                             sample_ids=None,
+                             pair_sim_func=self.model.similarity,
+                             pairwise_sim_func=self.model.pairwise_similarity)
+        else:
+            samples = tuple(sample.to(self._device) if hasattr(sample, 'to') else sample for sample in samples)
+            embeddings = self.model.generate_embedding(*samples)
+            sample_format = self._sample_format
+            if self._sampler is not None:
+                embeddings, sample_ids, labels, sample_format = (
+                    self._sampler(embeddings, sample_ids, labels, self.model.pairwise_similarity, self._sample_format,
+                                  self.model.distance_metric))
+            loss_func.check(sample_format, self.model.distance_metric)
+            return loss_func(embeddings, sample_ids=sample_ids, labels=labels, pair_sim_func=self.model.similarity,
+                             pairwise_sim_func=self.model.pairwise_similarity)
 
     def train(self,
               train_data: RandomSamplePairDatasetBase,
-              val_data: RandomSamplePairDatasetBase,
               record_dir: str,
-              search_data: List[SampleDatasetBase] = None,
+              search_data: List[SampleDatasetBase],
               epoch: int = 50,
               val_interval=5,
               choice_metric: SiameseMetric = SiameseMetric.nDCG(10),
               metrics: Set[SiameseMetric] = None,
               backward_steps=1,
               lr: float = 0.001,
+              momentum_model_update_rate: float = 0.001,
+              loss_func_name = None,
+              loss_func_kwargs: dict = None,
               optimizer_kwargs: dict = None,
               ignore_first=False,
               num_workers=0,
               train_batch_size=32,
-              eval_classify_batch_size=32,
               eval_search_batch_size=32,
+              queue_max_size=100,
               lr_update_epoch=None,
               lr_update_scale=0.9
               ) -> None:
         """
         Train the siamese model with train_dataloader and val_dataloader, and save the model with the best metric.
         :param train_data: The dataloader for training data.
-        :param val_data:  The dataloader for validation data.
         :param record_dir:  The directory to record the trend of metrics.
         :param search_data: The dataloader for searching.
         :param epoch:  The number of epoch to train.
@@ -118,11 +182,14 @@ class Siamese(object):
         :param metrics: The metrics to record, can be a subset of SUPPORTED_METRIC.
         :param backward_steps: How many steps to backward once
         :param lr: The learning rate.
+        :param momentum_model_update_rate: The update rate of momentum model.
+        :param loss_func_name: The name of loss function.
+        :param loss_func_kwargs: The kwargs to be passed to loss function.
         :param optimizer_kwargs: Extra parameters passed to optimizer.
         :param ignore_first: Whether the first search result should be ignored.
         :param num_workers: Number of workers for Dataloaders to load samples.
         :param train_batch_size: The batch_size used to load training samples.
-        :param eval_classify_batch_size: The batch size used in classification evaluation.
+        :param queue_max_size: The max size of the queue used in momentum model.
         :param eval_search_batch_size: The batch size used in search evaluation.
         :param lr_update_epoch: If set, the learning rate will be updated, when the loss doesn't change for
             lr_update_epoch epochs.
@@ -130,15 +197,23 @@ class Siamese(object):
             multiplication.
         :return:
         """
+        logger.info(f"Start training with record_dir: {record_dir}")
+        logger.info(f"Distance metric: {self.model.distance_metric}")
+        logger.info(f"Sample format: {self._sample_format}")
+        logger.info(f"Sampler: {self._sampler}")
+        logger.info(f"Loss function: {loss_func_name}")
         # initialize optimizer
         if optimizer_kwargs is None:
             optimizer_kwargs = {}
         optimizer = self._optimizer(self.parameters(), lr=lr, **optimizer_kwargs)
         optimizer.zero_grad()
-        # initialize scaler to accelerate training
-        scaler = None
-        if self._mixed_precision:
-            scaler = GradScaler()
+        # initialize loss function
+        if loss_func_kwargs is None:
+            loss_func_kwargs = {}
+        loss_func = get_loss_by_name(loss_func_name, **loss_func_kwargs)
+        if self._momentum_model is not None:
+            self._prepare_momentum_model()
+            self._target_queue = EmbeddingQueue(queue_max_size)
 
         # initialize metric recorder
         metrics = set(metrics)
@@ -155,17 +230,15 @@ class Siamese(object):
 
         # initialize dataloader
         train_dataloader = DataLoader(train_data, batch_size=train_batch_size // backward_steps, shuffle=True,
-                                      collate_fn=train_data.collate_fn, num_workers=num_workers)
+                                      collate_fn=train_data.collate_fn, num_workers=num_workers, drop_last=True)
         # For classification, we need use randomly generated sample pairs
-        val_data.sample_format = SiameseSampleFormat.Pair
-        classify_dataloader = DataLoader(val_data, batch_size=eval_classify_batch_size, shuffle=False,
-                                         collate_fn=val_data.collate_fn, num_workers=num_workers)
         query_data, target_data = search_data
-
         query_dataloader = DataLoader(query_data, batch_size=eval_search_batch_size, shuffle=False,
                                       collate_fn=query_data.collate_fn_with_name, num_workers=num_workers)
         target_dataloader = DataLoader(target_data, batch_size=eval_search_batch_size, shuffle=False,
                                        collate_fn=target_data.collate_fn_with_name, num_workers=num_workers)
+        search_loader = (query_dataloader, target_dataloader)
+
         loss_not_decrease, min_loss = 0, 1e10
         # train loop
         for e in range(epoch):
@@ -179,33 +252,30 @@ class Siamese(object):
             train_time_start = time.time()
             for batch_idx, (samples, sample_ids, labels) in enumerate(processbar):
                 # forward and backward
-                # if with_autocast, use autocast to accelerate training
-                if self._mixed_precision:
-                    with autocast():
-                        loss = self.forward(samples, labels, sample_ids)
-                    # backward
-                    scaler.scale(loss).backward()
-                    if (batch_idx + 1) % backward_steps == 0 or batch_idx == len(train_dataloader) - 1:
-                        scaler.step(optimizer)
-                        scaler.update()
-                        optimizer.zero_grad()
-                else:
-                    loss = self.forward(samples, labels, sample_ids)
-                    loss.backward()
-                    if (batch_idx + 1) % backward_steps == 0 or batch_idx == len(train_dataloader) - 1:
-                        optimizer.step()
-                        optimizer.zero_grad()
+                loss = self.forward(samples, labels, sample_ids, loss_func=loss_func)
+                loss.backward()
+                if (batch_idx + 1) % backward_steps == 0 or batch_idx == len(train_dataloader) - 1:
+                    optimizer.step()
+                    optimizer.zero_grad()
                 loss_value = loss.detach().cpu().item()
                 processbar.set_postfix_str(f"loss:{loss_value:.4f}")
                 # record loss
                 batch_loss_list.append(loss_value)
-            train_time_end = time.time()
-            average_train_time = (train_time_end-train_time_start)/len(train_data) / 2
+
+                if self._momentum_model is not None:
+                    # update momentum model
+                    with torch.no_grad():
+                        for param, momentum_param in zip(self.model.parameters(), self._momentum_model.parameters()):
+                            momentum_param.data = momentum_param.data * (1 - momentum_model_update_rate) + \
+                                                  param.data * momentum_model_update_rate
+
+            torch.cuda.synchronize()
+            average_train_time = (time.time()-train_time_start)/len(train_data)
             train_time_list.append(average_train_time)
             batch_loss = sum(batch_loss_list) / len(batch_loss_list)
             loss_list.append(batch_loss)
             logger.info(f'Loss of epoch {e:002d}: {batch_loss:3.4f}')
-            logger.info(f'Average of train time {e:002d}: {average_train_time*1000:3.4f}ms')
+            logger.info(f'Average of train time {e:002d}: {average_train_time*1000:3.4f}ms({train_data.sample_format})')
             if lr_update_epoch is not None:
                 if batch_loss < min_loss:
                     min_loss = batch_loss
@@ -224,8 +294,7 @@ class Siamese(object):
                     logger.info(f"Current min_loss: {min_loss:.4f}, it has been not decreased for {loss_not_decrease} epochs.")
             # evaluate every val_interval epoch
             if (e + 1) % val_interval == 0:
-                eval_results = self.test(classify_loader=classify_dataloader,
-                                         search_loader=(query_dataloader, target_dataloader),
+                eval_results = self.test(search_loader=search_loader,
                                          metrics=metrics, ignore_first=ignore_first)
                 logger.info(f'Evaluation results of epoch {e:002d}: ')
                 for metric_name, metric_value in eval_results.items():
@@ -237,7 +306,11 @@ class Siamese(object):
                         (best_metric is None or metric_record[best_metric_name][-1] > best_metric):
                     best_metric = metric_record[best_metric_name][-1]
                     logger.info(f'Get better {best_metric_name}: {best_metric}.')
-                    self.save_model(f'{record_dir}/model.pkl')
+                    self.save_model(f'{record_dir}/best.pkl')
+                    shutil.copy(f'{record_dir}/best.pkl', f'{record_dir}/latest.pkl')
+                else:
+                    self.save_model(f'{record_dir}/latest.pkl')
+        self.save_model(f'{record_dir}/last.pkl')
 
         # save recorded metrics
         with open(f'{record_dir}/train/loss.pkl', 'wb') as f:
@@ -247,95 +320,46 @@ class Siamese(object):
         with open(f'{record_dir}/train/metric.pkl', 'wb') as f:
             pickle.dump(metric_record, f)
 
-    def test(self, classify_loader: DataLoader = None,
-             search_loader: Tuple[DataLoader, DataLoader] = None,
-             metrics: Set[SiameseMetric] = None,
+    def _prepare_momentum_model(self):
+        # copy parameters from model to momentum_model
+        self._momentum_model.load_state_dict(self._model.state_dict())
+        for param in self._momentum_model.parameters():
+            param.requires_grad = False
+        self._momentum_model.eval()
+
+    def test(self, search_loader: Tuple[DataLoader, DataLoader],
+             metrics: Set[SiameseMetric],
              verbose = True,
              ignore_first=False) -> dict[SiameseMetric, float]:
         self.model.eval()
-        if metrics is None:
-            metrics = {SiameseMetric.AUC, SiameseMetric.ROC, SiameseMetric.MRR(10)}
-        assert not (search_loader is None and classify_loader is None)
-        classification_metrics = {metric for metric in metrics if not metric.is_search_metric()}
         search_metrics = {metric for metric in metrics if metric.is_search_metric()}
-
-        result = {}
-
-        if classify_loader is not None:
-            classify_loader.dataset.sample_format = SiameseSampleFormat.Pair
-
-        if classify_loader is not None and len(classification_metrics) != 0:
-            classification_result = self.evaluate_pair_classification(classify_loader, classification_metrics)
-            result.update(classification_result)
 
         # todo: for GraphMatchingModel, we should use another method to evaluate search,
         #   as for GraphMatchingModel, we should use the original graphs to calculate the similarity.
-        if search_loader is not None and len(search_metrics) != 0:
-            sample_loader1, sample_loader2 = search_loader
-            # sample_loader1 = DataLoader(search_loader[0], batch_size=search_batch_size, shuffle=False,
-            #                             collate_fn=search_loader[0].collate_fn_with_name, num_workers=num_workers)
-            # sample_loader2 = DataLoader(search_loader[1], batch_size=search_batch_size, shuffle=False,
-            #                             collate_fn=search_loader[1].collate_fn_with_name, num_workers=num_workers)
-            if isinstance(self.model, GraphEmbeddingModelBase):
-                search_result = self.evaluate_search_for_embedding_model(sample_loader1,
-                                                                         sample_loader2,
-                                                                         search_metrics,
-                                                                         ignore_first=ignore_first,
-                                                                         verbose=verbose)
-            else:
-                # raise RuntimeError("Search evaluation for GraphMatchingModel is too slow, so we just comment it.")
-                search_result = self.evaluate_search_for_matching_model(sample_loader1,
-                                                                        sample_loader2,
-                                                                        search_metrics,
-                                                                        ignore_first=ignore_first)
-            result.update(search_result)
-
-        return result
+        sample_loader1, sample_loader2 = search_loader
+        if isinstance(self.model, GraphEmbeddingModelBase):
+            search_result = self.evaluate_search_for_embedding_model(sample_loader1,
+                                                                     sample_loader2,
+                                                                     search_metrics,
+                                                                     ignore_first=ignore_first,
+                                                                     verbose=verbose)
+        else:
+            # raise RuntimeError("Search evaluation for GraphMatchingModel is too slow, so we just comment it.")
+            search_result = self.evaluate_search_for_matching_model(sample_loader1,
+                                                                    sample_loader2,
+                                                                    search_metrics,
+                                                                    ignore_first=ignore_first)
+        return search_result
 
     def save_model(self, filename):
         self.model.save(filename)
 
-    @torch.no_grad()
-    def evaluate_pair_classification(self, val_dataloader: DataLoader, metrics: Set[SiameseMetric]) -> dict:
-        self.model.eval()
-        predict_record, label_record = [], []
-        for samples, _, labels in tqdm(val_dataloader):
-            samples = tuple(sample.to(self._device) if hasattr(sample, 'to') else sample for sample in samples)
-            labels = labels.to(self._device)
-            if self._mixed_precision:
-                with autocast():
-                    predict = - self.model.similarity_between_original(samples)
-            else:
-                predict = - self.model.similarity_between_original(samples)
-            predict_record.append(predict.cpu().numpy())
-            label_record.append(labels.cpu().numpy())
-        predict_record = np.concatenate(predict_record)
-        label_record = np.concatenate(label_record)
-        # calculate classification metrics
-        results = {}
-        for metric in metrics:
-            match metric:
-                case SiameseMetric.AUC:
-                    results[SiameseMetric.AUC] = roc_auc_score(label_record, predict_record)
-                case SiameseMetric.ROC:
-                    results[SiameseMetric.ROC] = roc_curve(label_record, predict_record)
-                case SiameseMetric.AUC:
-                    results[SiameseMetric.AUC] = roc_auc_score(label_record, predict_record)
-                case _:
-                    raise ValueError(f"Unsupported metric: {metric}")
-
-        return results
-
-    def generate_embeddings_for_search_eval(self, samples, verbose=True):
+    def generate_embeddings_for_search_eval(self, samples: DataLoader, verbose=True):
         embeddings, ids, names, tags = [], [], [], []
         if verbose:
             samples = tqdm(samples)
         for batched_samples, batched_ids, batched_names, batched_tags in samples:
-            if self._mixed_precision:
-                with autocast():
-                    batched_embeddings = self._generate_embedding(batched_samples)
-            else:
-                batched_embeddings = self._generate_embedding(batched_samples)
+            batched_embeddings = self._generate_embedding(batched_samples)
             embeddings.append(batched_embeddings.cpu())
             ids.append(batched_ids.cpu())
             names.extend(batched_names)
@@ -350,7 +374,7 @@ class Siamese(object):
                                             ignore_first=False,
                                             batch_size=32,
                                             verbose=True,
-                                            *, analysis_tag_distribution=False) -> Union[dict, Tuple[dict, List]]:
+                                            *, debug=False) -> Union[dict, Tuple[dict, List]]:
         self.model.eval()
         # generate embeddings for samples
         embeddings1, ids1, names1, tags1 = self.generate_embeddings_for_search_eval(samples1, verbose=verbose)
@@ -359,9 +383,9 @@ class Siamese(object):
         # 1. calculate search rank
         search_result, answer_num = search(embeddings1, ids1,
                                            embeddings2, ids2,
-                                           pair_sim_func=self.model.pairwise_similarity,
+                                           pair_sim_func=self.model.pairwise_similarity_for_search,
                                            device=self._device,
-                                           top_k=100 + ignore_first,
+                                           top_k=200 + ignore_first,
                                            verbose=verbose,
                                            batch_size=batch_size)
         ids1 = ids1.to(self._device).reshape([-1, 1])
@@ -369,8 +393,24 @@ class Siamese(object):
         search_result_correct = (ids1 == ids2[search_result]).float()
         metrics = self.calculate_search_metrics(search_result_correct, answer_num, metrics, ignore_first=ignore_first)
 
-        if not analysis_tag_distribution:
+        if not debug:
             return metrics
+        # 1. analysis those samples with wrong search result @1
+        ids1 = ids1.reshape([-1])
+        wrong_index = (search_result_correct[:,0] == 0)
+        wrong_ids1, wrong_ids2 = ids1[wrong_index], ids2[search_result[wrong_index]]
+        _, old_idx1 = torch.sort(ids1)
+        _, old_idx2 = torch.sort(ids2)
+        tags1 = [tags1[idx] for idx in old_idx1.cpu().numpy()]
+        tags2 = [tags2[idx] for idx in old_idx2.cpu().numpy()]
+
+        wrong_results_name = []
+        for query_idx, row in zip(wrong_ids1.cpu().numpy(), wrong_ids2.cpu().numpy()):
+            line = []
+            for idx in row:
+                line.append(tags2[idx])
+            wrong_results_name.append((tags1[query_idx],line))
+
         diff_distribution = self.analysis_tag_difference_distribution(search_result, ids1, ids2, tags1, tags2)
         return metrics, diff_distribution
 

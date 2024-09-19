@@ -1,107 +1,34 @@
 import dgl
 import torch
-from typing import Tuple, Any
 from torch import nn
+from typing import Tuple, Any
 from abc import ABC, abstractmethod
-from binsim.neural.nn.globals.siamese import SiameseSampleFormat
-from binsim.neural.learning.sampling import OnlineSemiHardNegativeSampler
-
 
 class GraphEmbeddingModelBase(nn.Module, ABC):
-    def __init__(self, sample_format: SiameseSampleFormat):
-        """
-        :param sample_format: If provided, the model will be trained using triplet loss. Otherwise, siamese loss will be used.
-        """
+    def __init__(self, distance_func):
         super().__init__()
-        self.sample_format = sample_format
-        self._margin = None
+        self._distance_func = distance_func
 
     @classmethod
     def graphType(cls):
         raise
 
     @abstractmethod
-    def pairDataset(self):
-        pass
-
-    @abstractmethod
     def sampleDataset(self):
         pass
 
     @property
-    def margin(self):
-        if self._margin is None:
-            raise ValueError("The margin should be set before used.")
-        return self._margin
+    def distance_metric(self):
+        return self._distance_func.metric
 
-    @margin.setter
-    def margin(self, value):
-        self._margin = value
-
-    def _semi_hard_sampler(self, anchors, positives, anchor_ids, positive_ids: torch.Tensor) -> \
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        sampler = OnlineSemiHardNegativeSampler(margin=self.margin)
-        negative_idx = sampler(anchors, anchor_ids, positives, positive_ids, self.pairwise_similarity).cpu()
-        return (torch.arange(0, len(anchors)),
-                torch.arange(0, len(anchors)), negative_idx)
-
-    def _semi_hard_triplet_sampler(self, embeddings: torch.Tensor, labels: torch.Tensor, ids: torch.Tensor) \
-            -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        raise NotImplementedError
-
-    @property
-    def sampler(self):
-        match self.sample_format:
-            case SiameseSampleFormat.SemiHardPair:
-                return self._semi_hard_sampler
-            case SiameseSampleFormat.SemiHardTriplet:
-                return self._semi_hard_triplet_sampler
-            case _:
-                raise NotImplementedError
-
-    @property
-    def sample_format(self):
-        return self._sample_format
-
-    @sample_format.setter
-    def sample_format(self, value):
-        if value is None:
-            value = SiameseSampleFormat.Pair
-
-        assert isinstance(value, (SiameseSampleFormat, str)), \
-            "sample_format must be an instance of SiameseSampleFormat or a string."
-
-        if isinstance(value, str):
-            value = SiameseSampleFormat(value)
-        self._sample_format = value
-
-    def forward(self, samples: torch.Tensor, labels: torch.Tensor, ids: torch.Tensor):
+    def forward(self, samples: torch.Tensor):
         """
         Forward process of the model.
         :param samples: Batch of samples
-        :param labels:
-        :param ids:
         :return:
         """
         embeddings = self.generate_embedding(*samples)
-
-        extra_data = []
-        if isinstance(embeddings, tuple):
-            embeddings, *extra_data = embeddings
-
-        match self._sample_format:
-            case SiameseSampleFormat.Pair:
-                return self.siamese_loss(embeddings, labels, ids, *extra_data)
-            case SiameseSampleFormat.Triplet:
-                return self.triplet_loss(embeddings, labels, ids, *extra_data)
-            case SiameseSampleFormat.SemiHardPair:
-                sampled_embeddings, sampled_ids, labels = self.generate_semi_hard_tuples(self.sampler, embeddings, ids)
-                return self.siamese_loss(sampled_embeddings, labels, sampled_ids, *extra_data)
-            case SiameseSampleFormat.SemiHardTriplet:
-                sampled_embeddings, sampled_ids = self.generate_semi_hard_tuples(self.sampler, embeddings, ids)
-                return self.triplet_loss(sampled_embeddings, labels, sampled_ids, *extra_data)
-            case SiameseSampleFormat.InfoNCESamples:
-                return self.info_nce_loss(embeddings, ids)
+        return embeddings
 
     @staticmethod
     def generate_semi_hard_tuples(sampler, embeddings, ids, triplet=False):
@@ -138,22 +65,37 @@ class GraphEmbeddingModelBase(nn.Module, ABC):
     def generate_embedding(self, *args) -> torch.Tensor:
         pass
 
-    @abstractmethod
     def similarity(self, samples: torch.Tensor) -> torch.Tensor:
-        pass
+        samples = samples.view([len(samples) // 2, 2, samples.shape[-1]])
+        return self._distance_func.similarity(samples[:, 0], samples[:, 1])
 
     def similarity_between_original(self, samples):
         sample_embeddings = self.generate_embedding(*samples)
         return self.similarity(sample_embeddings)
 
-    @abstractmethod
+    def similarity_for_search(self, samples):
+        samples = samples.view([len(samples) // 2, 2, samples.shape[-1]])
+        return self._distance_func.similarity_for_search(samples[:, 0], samples[:, 1])
+
+    def similarity_for_search_between_original(self, samples):
+        sample_embeddings = self.generate_embedding(*samples)
+        return self.similarity_for_search(sample_embeddings)
+
     def pairwise_similarity(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        pass
+        return self._distance_func.pairwise_similarity(x, y)
 
     def pairwise_similarity_between_original(self, samples_x, samples_y):
         x_embeddings = self.generate_embedding(*samples_x)
         y_embeddings = self.generate_embedding(*samples_y)
         return self.pairwise_similarity(x_embeddings, y_embeddings)
+
+    def pairwise_similarity_for_search(self, x, y):
+        return self._distance_func.pairwise_similarity_for_search(x, y)
+
+    def pairwise_similarity_for_search_between_original(self, samples_x, samples_y):
+        x_embeddings = self.generate_embedding(*samples_x)
+        y_embeddings = self.generate_embedding(*samples_y)
+        return self.pairwise_similarity_for_search(x_embeddings, y_embeddings)
 
     def siamese_loss(self, samples: torch.Tensor, labels: torch.Tensor, sample_ids: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError(f"Siamese loss is not implemented for {self.__class__}!")

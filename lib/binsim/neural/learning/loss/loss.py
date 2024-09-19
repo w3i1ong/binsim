@@ -2,7 +2,6 @@ import torch
 from torch.nn import MSELoss, CosineSimilarity, PairwiseDistance, CosineEmbeddingLoss
 from torch.nn import Module
 
-
 class CosineMSELoss(Module):
     def __init__(self):
         super(CosineMSELoss, self).__init__()

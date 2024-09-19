@@ -1,0 +1,51 @@
+dataset:
+  type: InsSeq
+  binary-dir: /path/to/your/root/dataset/trex
+  dataset-dir: /path/to/your/root/processed-dataset/trex/InsSeq
+  middle-dir: /path/to/your/root/cache/middle/trex/InsSeq
+  cache-dir: /path/to/your/root/cache/database/trex
+  remove-duplicate: True
+  occurrence-threshold: 0
+  arch:
+    - x64
+    - arm32
+    - x86
+    - mips32
+  compiler:
+    - ukn-ukn
+  subsets:
+    train:
+      - binutils
+      - curl
+      - ImageMagick
+      - libmicrohttpd
+      - libtomcrypt
+      - coreutils
+      - gmp
+    validation:
+      - putty
+      - sqlite
+      - findutils
+    test:
+      - openssl
+      - zlib
+      - diffutils
+
+disassemble:
+  extractor:
+    workers: 30
+    verbose: True
+    keep-thunk: False
+    keep-large: False
+    large-ins-threshold: 4000
+    large-graph-threshold: 300
+    keep-small: False
+    small-ins-threshold: 10
+    small-graph-threshold: 5
+    regenerate: False
+    incremental: False
+    checkpoint: False
+
+log:
+  level: "info"
+  console: True

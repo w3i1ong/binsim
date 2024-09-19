@@ -1,5 +1,4 @@
 import os
-import requests
 
 
 def is_elf_file(filename):
@@ -36,17 +35,17 @@ def strip_file_local(infile, outfile):
     arch = get_architecture(infile)
     match arch:
         case 'x86':
-            ret_code = os.system(f'strip --strip-all {infile} -o {outfile}')
+            ret_code = os.system(f'strip --strip-all {infile} -o {outfile} > /dev/null 2>&1')
         case 'x64':
-            ret_code = os.system(f'strip --strip-all {infile} -o {outfile}')
+            ret_code = os.system(f'strip --strip-all {infile} -o {outfile} > /dev/null 2>&1')
         case 'arm32':
-            ret_code = os.system(f'aarch64-linux-gnu-strip --strip-all {infile} -o {outfile}')
+            ret_code = os.system(f'aarch64-linux-gnu-strip --strip-all {infile} -o {outfile} > /dev/null 2>&1')
         case 'arm64':
-            ret_code = os.system(f'aarch64-linux-gnu-strip --strip-all {infile} -o {outfile}')
+            ret_code = os.system(f'aarch64-linux-gnu-strip --strip-all {infile} -o {outfile} > /dev/null 2>&1')
         case 'mips32':
-            ret_code = os.system(f'mips-linux-gnu-strip --strip-all {infile} -o {outfile}')
+            ret_code = os.system(f'mips-linux-gnu-strip --strip-all {infile} -o {outfile} > /dev/null 2>&1')
         case 'mips64':
-            ret_code = os.system(f'mips-linux-gnu-strip --strip-all {infile} -o {outfile}')
+            ret_code = os.system(f'mips-linux-gnu-strip --strip-all {infile} -o {outfile} > /dev/null 2>&1')
         case _:
             raise ValueError(f"Cannot recognize the architecture of the provided file, whose e_machine is {arch}.")
     if ret_code != 0:

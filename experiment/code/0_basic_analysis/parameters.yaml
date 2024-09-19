@@ -1,9 +1,0 @@
-models:
-  alpha-diff: ./record/alpha-diff
-  gemini: ./record/gemini
-  i2v-rnn: ./record/i2v-rnn
-  jTrans: ./record/jTrans
-  rcfg2vec: ./record/rcfg2vec
-  safe: ./record/safe
-  Asteria: ./record/Asteria
-#  Asm2Vec: ./record/Asm2Vec

@@ -1,0 +1,61 @@
+name: jTrans
+
+common:
+  record-dir: "/path/to/your/root/binsim-record/trex/jTrans"
+  log:
+    level: "info"
+    file: True
+
+model:
+  type: "JTrans"
+  kwargs:
+    pretrained_weights: "/path/to/your/root/models/jTrans-models/jTrans-pretrained"
+  distance:
+    type: 'cosine'
+
+dataset:
+  type: 'JTransSeq'
+  path: '/path/to/your/root/processed-dataset/trex/JTransSeq'
+  name: 'default'
+  small-graph-threshold: 5
+
+
+train:
+  general:
+    epoch: 50
+    backward-steps: 1
+    gpu: 0
+    mixed-precision: False
+    num-workers: 20
+    batch-size: 250
+    choice-metric: 'nDCG@4'
+    use-momentum-model: False
+    queue-max-size: 4000
+
+  sampler:
+    type: semi-hard-pair
+    kwargs:
+
+  loss:
+    type: "info-nce-loss"
+    kwargs:
+      temperature: 0.07
+
+  optimizer:
+    type: 'adamW'
+    lr: 0.001
+    kwargs:
+    lr-update-epoch: 2
+    lr-update-scale: 0.5
+
+  evaluation:
+    val-interval: 10
+    batch-size:
+      classification: 128
+      search: 256
+    metrics:
+      - 'recall@1'
+      - 'mrr@10'
+      - 'hit@10'
+      - 'recall@10'
+      - 'nDCG@4'

@@ -1,9 +1,6 @@
 import torch
-from torch import nn
-from typing import Union
+from typing import Union, List
 from torch.nn.functional import pad as pad_tensor
-from binsim.neural.nn.distance import PairwiseCosineDistance
-from typing import Tuple, List
 
 
 def diagonalize_matrices(matrices: List[torch.Tensor], row=None, col=None):
@@ -37,22 +34,28 @@ def diagonalize_matrices(matrices: List[torch.Tensor], row=None, col=None):
     return result
 
 
-def get_loss_by_name(name: str, **kwargs) -> nn.Module:
-    if name == 'cel':
-        assert 'margin' in kwargs, f"You must provide margin for cel loss!"
-        return nn.CosineEmbeddingLoss(margin=kwargs['margin'])
-    elif name == 'mse':
-        return nn.CosineEmbeddingLoss()
+def get_loss_by_name(name: str, **kwargs):
+    match name:
+        case 'csl':
+            assert 'margin' in kwargs, f"You must provide margin for cel loss!"
+            from binsim.neural.nn.siamese.loss import CosineEmbeddingLoss
+            return CosineEmbeddingLoss(margin=kwargs['margin'])
+        case 'mse':
+            from binsim.neural.nn.siamese.loss import MSELoss
+            return MSELoss()
+        case "info-nce-loss":
+            from binsim.neural.nn.siamese.loss import InfoNCELoss
+            return InfoNCELoss(**kwargs)
+        case "triplet":
+            from binsim.neural.nn.siamese.loss import TripletLoss
+            return TripletLoss(**kwargs)
+        case "safe-loss":
+            from binsim.neural.nn.siamese.loss import SAFELoss
+            return SAFELoss(**kwargs)
+        case "asteria-loss":
+            from binsim.neural.nn.siamese.loss import AsteriaLoss
+            return AsteriaLoss(**kwargs)
     raise NotImplementedError(f"The loss function {name} is not supported!")
-
-
-def get_distance_by_name(name) -> Tuple[nn.Module, nn.Module]:
-    if name == 'cosine':
-        return nn.CosineSimilarity(dim=1), PairwiseCosineDistance()
-    elif name == 'euclid':
-        return nn.PairwiseDistance(), PairwiseCosineDistance()
-    raise NotImplementedError(f"The distance function {name} is not supported!")
-
 
 def get_optimizer_by_name(name: str):
     name = name.lower()
@@ -69,6 +72,27 @@ def get_optimizer_by_name(name: str):
         return torch.optim.AdamW
     raise ValueError(f"The optimizer {name} is not supported!")
 
+def get_sampler_by_name(name: str, kwargs):
+    from binsim.neural.nn.siamese.sampler.margin_sampler import MarginSampler
+    match name:
+        case "semi-hard-pair":
+            return MarginSampler(margin=kwargs['margin'], triple=False)
+        case "semi-hard-triplet":
+            return MarginSampler(margin=kwargs['margin'], triple=True)
+        case _:
+            raise ValueError(f"Unsupported sampler: {name}.")
+
+def get_distance_by_name(name:str, kwargs):
+    from binsim.neural.nn.siamese.distance import CosineDistance, EuclidianDistance, AsteriaDistance
+    match name:
+        case "cosine":
+            return CosineDistance(**kwargs)
+        case "euclid":
+            return EuclidianDistance(**kwargs)
+        case "asteria-distance":
+            return AsteriaDistance(**kwargs)
+        case _:
+            raise ValueError(f"Unsupported distance: {name}.")
 
 def dict2str(d: Union[dict, list], level=0):
     if isinstance(d, list):
@@ -90,7 +114,7 @@ def dict2str(d: Union[dict, list], level=0):
     return str(d)
 
 def get_model_type(name: str):
-    from binsim.neural.nn.model import Gemini, I2vAtt, I2vRNN, SAFE, AlphaDiff, JTrans, RCFG2Vec, GraphMatchingNet, Asteria
+    from binsim.neural.nn.model import Gemini, BinMamba, CFGFormer, I2vRNN, SAFE, AlphaDiff, JTrans, RCFG2Vec, GraphMatchingNet, Asteria, ASTSAFE
     match name.lower():
         case 'alphadiff':
             return AlphaDiff
@@ -104,10 +128,16 @@ def get_model_type(name: str):
             return SAFE
         case 'jtrans':
             return JTrans
+        case 'astsafe':
+            return ASTSAFE
         case 'GMN' | 'GraphMatchingNet':
             return GraphMatchingNet
         case 'asteria':
             return Asteria
+        case "binmamba":
+            return BinMamba
+        case "cfgformer":
+            return CFGFormer
         case _:
             raise ValueError(f"Unsupported model type: {name}.")
 

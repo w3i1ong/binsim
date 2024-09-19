@@ -1,0 +1,123 @@
+model:
+  model-source: 'final'
+general:
+  gpu: 0
+  random-seed: 0
+  mixed-precision: False
+  num-workers: 10
+  test-times: 3
+  pool-size: 1000
+  batch-size: 1000
+evaluation:
+  metrics:
+    - 'recall@1'
+  options:
+    cross-optimization-x64-O0-O3:
+      - 'x64:linux:ukn-ukn:O0'
+      - 'x64:linux:ukn-ukn:O3'
+    cross-optimization-x64-O1-O3:
+      - 'x64:linux:ukn-ukn:O1'
+      - 'x64:linux:ukn-ukn:O3'
+    cross-optimization-x64-O2-O3:
+      - 'x64:linux:ukn-ukn:O2'
+      - 'x64:linux:ukn-ukn:O3'
+    cross-optimization-x86-O0-O3:
+      - 'x86:linux:ukn-ukn:O0'
+      - 'x86:linux:ukn-ukn:O3'
+    cross-optimization-x86-O1-O3:
+      - 'x86:linux:ukn-ukn:O1'
+      - 'x86:linux:ukn-ukn:O3'
+    cross-optimization-x86-O2-O3:
+      - 'x86:linux:ukn-ukn:O2'
+      - 'x86:linux:ukn-ukn:O3'
+    cross-optimization-arm32-O0-O3:
+      - 'arm32:linux:ukn-ukn:O0'
+      - 'arm32:linux:ukn-ukn:O3'
+    cross-optimization-arm32-O1-O3:
+      - 'arm32:linux:ukn-ukn:O1'
+      - 'arm32:linux:ukn-ukn:O3'
+    cross-optimization-arm32-O2-O3:
+      - 'arm32:linux:ukn-ukn:O2'
+      - 'arm32:linux:ukn-ukn:O3'
+    cross-optimization-mips32-O0-O3:
+      - 'mips32:linux:ukn-ukn:O0'
+      - 'mips32:linux:ukn-ukn:O3'
+    cross-optimization-mips32-O1-O3:
+      - 'mips32:linux:ukn-ukn:O1'
+      - 'mips32:linux:ukn-ukn:O3'
+    cross-optimization-mips32-O2-O3:
+      - 'mips32:linux:ukn-ukn:O2'
+      - 'mips32:linux:ukn-ukn:O3'
+
+    cross-arch-arm32-mips32-O0:
+      - 'arm32:linux:ukn-ukn:O0'
+      - 'mips32:linux:ukn-ukn:O0'
+    cross-arch-arm32-mips32-O1:
+      - 'arm32:linux:ukn-ukn:O1'
+      - 'mips32:linux:ukn-ukn:O1'
+    cross-arch-arm32-mips32-O2:
+      - 'arm32:linux:ukn-ukn:O2'
+      - 'mips32:linux:ukn-ukn:O2'
+    cross-arch-arm32-mips32-O3:
+      - 'arm32:linux:ukn-ukn:O3'
+      - 'mips32:linux:ukn-ukn:O3'
+    cross-arch-arm32-x86-O0:
+      - 'arm32:linux:ukn-ukn:O0'
+      - 'x86:linux:ukn-ukn:O0'
+    cross-arch-arm32-x86-O1:
+      - 'arm32:linux:ukn-ukn:O1'
+      - 'x86:linux:ukn-ukn:O1'
+    cross-arch-arm32-x86-O2:
+      - 'arm32:linux:ukn-ukn:O2'
+      - 'x86:linux:ukn-ukn:O2'
+    cross-arch-arm32-x86-O3:
+      - 'arm32:linux:ukn-ukn:O3'
+      - 'x86:linux:ukn-ukn:O3'
+    cross-arch-arm32-x64-O0:
+      - 'arm32:linux:ukn-ukn:O0'
+      - 'x64:linux:ukn-ukn:O0'
+    cross-arch-arm32-x64-O1:
+      - 'arm32:linux:ukn-ukn:O1'
+      - 'x64:linux:ukn-ukn:O1'
+    cross-arch-arm32-x64-O2:
+      - 'arm32:linux:ukn-ukn:O2'
+      - 'x64:linux:ukn-ukn:O2'
+    cross-arch-arm32-x64-O3:
+      - 'arm32:linux:ukn-ukn:O3'
+      - 'x64:linux:ukn-ukn:O3'
+    cross-arch-mips32-x86-O0:
+      - 'mips32:linux:ukn-ukn:O0'
+      - 'x86:linux:ukn-ukn:O0'
+    cross-arch-mips32-x86-O1:
+      - 'mips32:linux:ukn-ukn:O1'
+      - 'x86:linux:ukn-ukn:O1'
+    cross-arch-mips32-x86-O2:
+      - 'mips32:linux:ukn-ukn:O2'
+      - 'x86:linux:ukn-ukn:O2'
+    cross-arch-mips32-x86-O3:
+      - 'mips32:linux:ukn-ukn:O3'
+      - 'x86:linux:ukn-ukn:O3'
+    cross-arch-mips32-x64-O0:
+      - 'mips32:linux:ukn-ukn:O0'
+      - 'x64:linux:ukn-ukn:O0'
+    cross-arch-mips32-x64-O1:
+      - 'mips32:linux:ukn-ukn:O1'
+      - 'x64:linux:ukn-ukn:O1'
+    cross-arch-mips32-x64-O2:
+      - 'mips32:linux:ukn-ukn:O2'
+      - 'x64:linux:ukn-ukn:O2'
+    cross-arch-mips32-x64-O3:
+      - 'mips32:linux:ukn-ukn:O3'
+      - 'x64:linux:ukn-ukn:O3'
+    cross-arch-x86-x64-O0:
+      - 'x86:linux:ukn-ukn:O0'
+      - 'x64:linux:ukn-ukn:O0'
+    cross-arch-x86-x64-O1:
+      - 'x86:linux:ukn-ukn:O1'
+      - 'x64:linux:ukn-ukn:O1'
+    cross-arch-x86-x64-O2:
+      - 'x86:linux:ukn-ukn:O2'
+      - 'x64:linux:ukn-ukn:O2'
+    cross-arch-x86-x64-O3:
+      - 'x86:linux:ukn-ukn:O3'
+      - 'x64:linux:ukn-ukn:O3'

@@ -1,7 +1,6 @@
+import os
 from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
-from collections import defaultdict
-import os
 
 
 class BinaryBase(object):
@@ -42,4 +41,4 @@ class BinaryBase(object):
             elffile = ELFFile(stream)
             self.scan_section(addr2name, elffile.get_section_by_name('.symtab'))
             self.scan_section(addr2name, elffile.get_section_by_name('.dynsym'))
-        return defaultdict(lambda: -1, addr2name)
+        return addr2name

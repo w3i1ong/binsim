@@ -1,7 +1,10 @@
 import torch
+import typing
 from torch import nn
-from binsim.neural.utils.data import BatchedInstruction
 from typing import List
+
+if typing.TYPE_CHECKING:
+    from binsim.neural.utils.data import BatchedInstruction
 
 
 class ImmEmbedding(nn.Module):
@@ -43,144 +46,107 @@ class MultiTokenOperandEmbedding(nn.Module):
 
 
 class InstructionEmbedding(nn.Module):
-    def __init__(self, vocab_num, embed_dim=128, device=None, dtype=None, mode='normal'):
+    def __init__(self, vocab_num, embed_dim=128, place_holders=0, device=None, dtype=None):
         """
         A simple neural network model used to generate instruction embedding for disassembly instruction.
         :param vocab_num: The size of vocabulary.
         :param embed_dim: The dimension of the instruction embedding.
         :param device: The device used to store the weights.
         :param dtype: The data type used to store the weights.
-        :param mode: The mode used to generate instruction embedding. Can be 'normal', 'mnemonic' or 'mean'.
-            If set to 'normal', the embedding model will consider the hierarchy structure of the instruction AST.
-            If set to 'mnemonic', mnemonic embedding will be used as the instruction embedding.
-            If set to 'mean', the instruction embedding will consist of two parts:
-                1. the mnemonic embedding
-                2. the mean of the operand token embeddings
-                Just like the method used in Asm2Vec.
         """
         factory_kwargs = {'device': device, 'dtype': dtype}
         super().__init__()
         self._embed_dim = embed_dim
         self._token_embedding = nn.Embedding(vocab_num, embed_dim, **factory_kwargs)
-        self._mode = mode
-        match mode:
-            case 'normal':
-                self._imm_embedding = ImmEmbedding(embed_dim=embed_dim, **factory_kwargs)
-                self._x86_mem_embedding_aggregator = MultiTokenOperandEmbedding(4 * embed_dim, embed_dim,
-                                                                                **factory_kwargs)
-                self._arm_mem_embedding_aggregator = MultiTokenOperandEmbedding(5 * embed_dim, embed_dim,
-                                                                                **factory_kwargs)
-                self._mips_mem_embedding_aggregator = MultiTokenOperandEmbedding(3 * embed_dim, embed_dim,
-                                                                                 **factory_kwargs)
-                self._arm_shift_embedding_aggregator = MultiTokenOperandEmbedding(3 * embed_dim, embed_dim,
-                                                                                  **factory_kwargs)
-                self._reg_index_embedding_aggregator = MultiTokenOperandEmbedding(3 * embed_dim, embed_dim,
-                                                                                  **factory_kwargs)
-                self._operand_linear = nn.ModuleList(
-                    [nn.Linear(embed_dim, embed_dim, **factory_kwargs) for _ in range(6)]
-                )
-                self._instruction_embedding_aggregator = nn.Sequential(
-                    nn.LeakyReLU(0.1), nn.Linear(embed_dim, embed_dim, **factory_kwargs), nn.LeakyReLU(0.1)
-                )
-            case 'mnemonic':
-                # token embedding is enough.
-                pass
-            case 'mean':
-                self._imm_embedding = ImmEmbedding(embed_dim=embed_dim, **factory_kwargs)
 
-    def _arm_reg_shift_embedding(self, instruction: BatchedInstruction) -> torch.Tensor:
+        self._imm_embedding = ImmEmbedding(embed_dim=embed_dim, **factory_kwargs)
+        self._x86_mem_embedding_aggregator = MultiTokenOperandEmbedding(4 * embed_dim, embed_dim,
+                                                                        **factory_kwargs)
+        self._arm_mem_embedding_aggregator = MultiTokenOperandEmbedding(5 * embed_dim, embed_dim,
+                                                                        **factory_kwargs)
+        self._mips_mem_embedding_aggregator = MultiTokenOperandEmbedding(3 * embed_dim, embed_dim,
+                                                                         **factory_kwargs)
+        self._arm_shift_embedding_aggregator = MultiTokenOperandEmbedding(3 * embed_dim, embed_dim,
+                                                                          **factory_kwargs)
+        self._reg_index_embedding_aggregator = MultiTokenOperandEmbedding(3 * embed_dim, embed_dim,
+                                                                          **factory_kwargs)
+        self._operand_linear = nn.ModuleList(
+            [nn.Linear(embed_dim, embed_dim, **factory_kwargs) for _ in range(6)]
+        )
+        self._instruction_embedding_aggregator = nn.Sequential(
+            nn.LeakyReLU(0.1), nn.Linear(embed_dim, embed_dim, **factory_kwargs), nn.LeakyReLU(0.1)
+        )
+
+        if place_holders == 0:
+            self._place_holders = None
+        else:
+            self._place_holders = torch.nn.Parameter(torch.randn(place_holders, embed_dim, **factory_kwargs, requires_grad=True))
+
+    def _arm_reg_shift_embedding(self, instruction: 'BatchedInstruction') -> torch.Tensor:
         operands = instruction.arm_reg_shift_operands
-        reg, shift_type, shift_value = operands.register, operands.shift_type, operands.value
-        tokens = torch.stack([reg, shift_type, shift_value], dim=1)
-        tokens = self._token_embedding(tokens)
-        if self._mode == 'normal':
-            return self._arm_shift_embedding_aggregator(tokens.reshape([-1, 3 * self._embed_dim]))
-        elif self._mode == 'mean':
-            return torch.mean(tokens, dim=1)
-        else:
-            raise ValueError(f'Unknown mode: {self._mode}')
+        tokens = self._token_embedding(operands.tokens)
+        return self._arm_shift_embedding_aggregator(tokens.reshape([-1, 3 * self._embed_dim]))
 
-    def _arm_imm_shift_embedding(self, instruction: BatchedInstruction) -> torch.Tensor:
+    def _arm_imm_shift_embedding(self, instruction: 'BatchedInstruction') -> torch.Tensor:
         operands = instruction.arm_imm_shift_operands
-        imm, shift_type, shift_value = operands.imm, operands.shift_type, operands.value
-        imm = self._imm_embedding(imm.reshape([-1, 1, 1]))
-        tokens = torch.stack([shift_type, shift_value], dim=1)
-        tokens = self._token_embedding(tokens)
+        imm = self._imm_embedding(operands.imm.reshape([-1, 1, 1]))
+        tokens = self._token_embedding(operands.tokens)
         tokens = torch.cat([tokens, imm], dim=1)
-        if self._mode == 'normal':
-            return self._arm_shift_embedding_aggregator(tokens.reshape([-1, 3 * self._embed_dim]))
-        elif self._mode == 'mean':
-            return torch.mean(tokens, dim=1)
-        else:
-            raise ValueError(f'Unknown mode: {self._mode}')
+        return self._arm_shift_embedding_aggregator(tokens.reshape([-1, 3 * self._embed_dim]))
 
-    def _arm_reg_list_embedding(self, instruction: BatchedInstruction) -> torch.Tensor:
+    def _arm_reg_list_embedding(self, instruction: 'BatchedInstruction') -> torch.Tensor:
         operands = instruction.arm_reg_list_operands
         reg_list, indexes, operand_num = operands.registers, operands.indexes, operands.operand_num
         reg_list = self._token_embedding(reg_list)
         embed_dim = reg_list.shape[-1]
         vec_sum = torch.zeros([operand_num, embed_dim], device=reg_list.device, dtype=reg_list.dtype)
         vec_sum.index_add_(0, indexes, reg_list)
-        if self._mode == 'normal':
-            return vec_sum
-        elif self._mode == 'mean':
-            cnt = torch.zeros([operand_num, 1], device=reg_list.device, dtype=reg_list.dtype)
-            ones = torch.ones([reg_list.shape[0], 1], device=reg_list.device, dtype=reg_list.dtype)
-            cnt.index_add_(0, indexes, ones)
-            return vec_sum / cnt
-        else:
-            raise ValueError(f'Unknown mode: {self._mode}')
+        return vec_sum
 
-    def _arm_reg_index_embedding(self, instruction: BatchedInstruction) -> torch.Tensor:
+    def _arm_reg_index_embedding(self, instruction: 'BatchedInstruction') -> torch.Tensor:
         operands = instruction.arm_reg_index_operands
-        reg, index, type = operands.register, operands.index, operands.type
-        tokens = torch.stack([reg, index, type], dim=1)
-        if self._mode == 'normal':
-            tokens = self._token_embedding(tokens).reshape([-1, 3 * self._embed_dim])
-            return self._reg_index_embedding_aggregator(tokens)
-        elif self._mode == 'mean':
-            return torch.mean(tokens, dim=1)
-        else:
-            raise ValueError(f'Unknown mode: {self._mode}')
+        tokens = self._token_embedding(operands.tokens).reshape([-1, 3 * self._embed_dim])
+        return self._reg_index_embedding_aggregator(tokens)
 
-    def forward(self, instruction: BatchedInstruction):
-        match self._mode:
-            case 'normal':
-                return self.normal_forward(instruction)
-            case 'mnemonic':
-                return self.mnemonic_forward(instruction)
-            case 'mean':
-                return self.normal_forward(instruction)
-            case _:
-                raise ValueError(f'Unknown mode: {self._mode}')
+    def forward(self, instruction: 'BatchedInstruction'):
+        return self.normal_forward(instruction)
 
-    def mnemonic_forward(self, instruction: BatchedInstruction):
-        return self._token_embedding(instruction.mnemic)
-
-    def normal_forward(self, instruction: BatchedInstruction):
+    def normal_forward(self, instruction: 'BatchedInstruction'):
         # 1. generate embedding for Memory Operand, token operand and immediate operand
         operands = []
+
+        if instruction.has_register_operand:
+            register_operands = self._token_embedding(instruction.register_operands.tokens)
+            operands.append(register_operands)
+
         if instruction.has_token_operand:
             token_operands = self._token_embedding(instruction.token_operands.tokens)
             operands.append(token_operands)
+
         if instruction.has_imm_operand:
             imm_operands = self._imm_embedding(instruction.imm_operands.imm)
             operands.append(imm_operands)
+
         if instruction.has_mem_operand:
             mem_operands = self._mem_embedding(instruction)
             operands.extend(mem_operands)
+
         if instruction.has_reg_shift_operand:
             reg_shift_operands = self._arm_reg_shift_embedding(instruction)
             operands.append(reg_shift_operands)
+
         if instruction.has_imm_shift_operand:
             imm_shift_operands = self._arm_imm_shift_embedding(instruction)
             operands.append(imm_shift_operands)
-        if instruction.has_reg_list_operand:
-            reg_list = self._arm_reg_list_embedding(instruction)
-            operands.append(reg_list)
+
         if instruction.has_reg_index_operand:
             reg_index = self._arm_reg_index_embedding(instruction)
             operands.append(reg_index)
+
+        if instruction.has_reg_list_operand:
+            reg_list = self._arm_reg_list_embedding(instruction)
+            operands.append(reg_list)
+
         operands = torch.cat(operands, dim=0)
         # 2. generate embedding for mnemonic
         mnemonic_embeddings = self._token_embedding(instruction.mnemic)
@@ -189,76 +155,43 @@ class InstructionEmbedding(nn.Module):
         operands_index = instruction.operand_index
         for key in instructions_index:
             operand_to_ins_index = instructions_index[key]
-            unique_operands_index, expand_operands_index = operands_index[key]
-            if operand_to_ins_index.shape[0] == 0:
-                break
             # calculate weight matrix for operands
-            unique_operands_embeddings = operands[unique_operands_index]
-            if self._mode == 'normal':
-                unique_operands_embeddings = self._operand_linear[key](unique_operands_embeddings)
-            operands_embeddings = unique_operands_embeddings[expand_operands_index]
+            operands_embeddings = operands[operands_index[key]]
+            operands_embeddings = self._operand_linear[key](operands_embeddings)
             # calculate instruction embedding
             mnemonic_embeddings.index_add_(0, operand_to_ins_index, operands_embeddings)
-        if self._mode == 'normal':
-            return self._instruction_embedding_aggregator(mnemonic_embeddings)
-        elif self._mode == 'mean':
-            cnt = torch.zeros([mnemonic_embeddings.shape[0], 1], device=mnemonic_embeddings.device,
-                                dtype=mnemonic_embeddings.dtype)
-            for key in instructions_index:
-                if len(instructions_index[key]) == 0:
-                    break
-                ones = torch.ones([instructions_index[key].shape[0], 1], device=mnemonic_embeddings.device,
-                                    dtype=mnemonic_embeddings.dtype)
-                cnt.index_add_(0, instructions_index[key], ones)
-            return mnemonic_embeddings / (cnt + 1)
+        ins_embeddings = self._instruction_embedding_aggregator(mnemonic_embeddings)
+        if self._place_holders is not None:
+            ins_embeddings = torch.cat([ins_embeddings, self._place_holders], dim=0)
+        return ins_embeddings
 
-    def _mem_embedding(self, instruction: BatchedInstruction) -> List[torch.Tensor]:
+    def _mem_embedding(self, instruction: 'BatchedInstruction') -> List[torch.Tensor]:
         result = []
         # x86
-        x86_operands = instruction.x86_mem_operands
-        if x86_operands.operand_num:
-            base, index, scale, offset = x86_operands.base, x86_operands.index, x86_operands.scale, x86_operands.disp
-            base_index = torch.stack([base, index], dim=1)
-            imm = torch.stack([scale, offset], dim=1).reshape([-1, 2, 1])
-            base_index = self._token_embedding(base_index)
-            imm = self._imm_embedding(imm)
-            x86_mem_embedding = torch.cat([base_index, imm], dim=1)
-            if self._mode == 'normal':
-                result.append(self._x86_mem_embedding_aggregator(x86_mem_embedding.reshape([-1, 4 * self._embed_dim])))
-            elif self._mode == 'mean':
-                result.append(torch.mean(x86_mem_embedding, dim=1))
-            else:
-                raise ValueError(f'Unknown mode: {self._mode}')
+        if instruction.has_x86_mem_operand:
+            x86_mem_operands = instruction.x86_mem_operands
+            token_index = x86_mem_operands.tokens
+            disp = x86_mem_operands.disp.reshape([-1, 1, 1])
+            token_embedding = self._token_embedding(token_index)
+            disp_embedding = self._imm_embedding(disp)
+            x86_mem_embedding = torch.cat([token_embedding, disp_embedding], dim=1)
+            result.append(self._x86_mem_embedding_aggregator(x86_mem_embedding.reshape([-1, 4 * self._embed_dim])))
 
         # arm
-        arm_operands = instruction.arm_mem_operands
-        if arm_operands.operand_num:
-            base, index, shift_type, shift_value, offset = arm_operands.base, arm_operands.index, arm_operands.shift_type, arm_operands.shift_value, arm_operands.disp
-            tokens = torch.stack([base, index, shift_type, shift_value], dim=1)
-            tokens = self._token_embedding(tokens)
-            imm = self._imm_embedding(offset.reshape([-1, 1, 1]))
-            arm_mem_embedding = torch.cat([tokens, imm], dim=1)
-            if self._mode == 'normal':
-                result.append(self._arm_mem_embedding_aggregator(arm_mem_embedding.reshape([-1, 5 * self._embed_dim])))
-            elif self._mode == 'mean':
-                result.append(torch.mean(arm_mem_embedding, dim=1))
-            else:
-                raise ValueError(f'Unknown mode: {self._mode}')
+        if instruction.has_arm_mem_operand:
+            arm_operands = instruction.arm_mem_operands
+            token_embedding = self._token_embedding(arm_operands.tokens)
+            disp_embedding = self._imm_embedding(arm_operands.disp.reshape([-1, 1, 1]))
+            arm_mem_embedding = torch.cat([token_embedding, disp_embedding], dim=1)
+            result.append(self._arm_mem_embedding_aggregator(arm_mem_embedding.reshape([-1, 5 * self._embed_dim])))
 
         # mips
-        mips_operands = instruction.mips_mem_operands
-        if mips_operands.operand_num:
-            base, index, offset = mips_operands.base, mips_operands.index, mips_operands.disp
-            tokens = torch.stack([base, index], dim=1)
-            tokens = self._token_embedding(tokens)
-            imm = self._imm_embedding(offset.reshape([-1, 1, 1]))
-            mips_mem_embedding = torch.cat([tokens, imm], dim=1)
-            if self._mode == 'normal':
-                result.append(self._mips_mem_embedding_aggregator(mips_mem_embedding.reshape([-1, 3 * self._embed_dim])))
-            elif self._mode == 'mean':
-                result.append(torch.mean(mips_mem_embedding, dim=1))
-            else:
-                raise ValueError(f'Unknown mode: {self._mode}')
+        if instruction.has_mips_mem_operand:
+            mips_operands = instruction.mips_mem_operands
+            token_embedding = self._token_embedding(mips_operands.tokens)
+            imm_embedding = self._imm_embedding(mips_operands.disp.reshape([-1, 1, 1]))
+            mips_mem_embedding = torch.cat([token_embedding, imm_embedding], dim=1)
+            result.append(self._mips_mem_embedding_aggregator(mips_mem_embedding.reshape([-1, 3 * self._embed_dim])))
 
         return result
 

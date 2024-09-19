@@ -1,8 +1,7 @@
-from binsim.neural.lm import Ins2vec
-import dgl
-import torch
+import dgl, torch
 from dgl import sum_nodes
 from torch.nn import Linear
+from binsim.neural.lm import Ins2vec
 from binsim.neural.nn.base.model import GraphEmbeddingModelBase
 from binsim.neural.nn.layer import Structure2vec
 
@@ -10,9 +9,9 @@ from binsim.neural.nn.layer import Structure2vec
 class I2vAtt(GraphEmbeddingModelBase):
     def __init__(self, out_dim: int,
                  ins2vec: Ins2vec,
+                 distance_func,
                  fixed_length=150,
                  use_mask=False,
-                 sampler=None,
                  device=None,
                  dtype=None):
         """
@@ -24,7 +23,7 @@ class I2vAtt(GraphEmbeddingModelBase):
         :param fixed_length: The maximum length of instruction sequences. If the length of a instruction sequence exceeds
         this value, the sequences will be truncated.
         """
-        super(I2vAtt, self).__init__(sample_format=sampler)
+        super(I2vAtt, self).__init__(distance_func=distance_func)
         factory_kwargs = {'device': device, 'dtype': dtype}
         # initialize embedding layer
         self.ins2vec = ins2vec.as_torch_model(freeze=True)
@@ -38,17 +37,11 @@ class I2vAtt(GraphEmbeddingModelBase):
         range_matrix = torch.arange(fixed_length).unsqueeze(0).repeat(fixed_length, 1)
         self.mask = torch.lt(range_matrix, range_matrix.T + 1).to(dtype)
         self.use_mask = use_mask
-        self.loss_func = torch.nn.MSELoss()
 
     @property
     def graphType(self):
         from binsim.disassembly.utils.globals import GraphType
         return GraphType.TokenCFG
-
-    @property
-    def pairDataset(self):
-        from binsim.neural.utils.data import TokenCFGDataForm
-        return TokenCFGDataForm
 
     @property
     def sampleDataset(self):
@@ -86,22 +79,6 @@ class I2vAtt(GraphEmbeddingModelBase):
         res = self.linear(sum_nodes(graph, 'x'))
         graph.ndata.pop('x')
         return res
-
-    def siamese_loss(self, embeddings: torch.Tensor, labels: torch.Tensor, sample_ids:torch.Tensor) -> torch.Tensor:
-        labels = torch.mul(torch.sub(labels, 0.5), 2)
-        return self.loss_func(self.similarity(embeddings), labels)
-
-    def triplet_loss(self, anchors: torch.Tensor, positive:torch.Tensor, negative:torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError("Triplet loss is not implemented for I2vAtt!")
-
-    def pairwise_similarity(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        x = x / torch.sqrt(torch.sum(x**2, dim=1, keepdim=True) + torch.tensor(1e-08, device=x.device))
-        y = y / torch.sqrt(torch.sum(y**2, dim=1, keepdim=True) + torch.tensor(1e-08, device=x.device))
-        return x @ y.T
-
-    def similarity(self, samples: torch.Tensor) -> torch.Tensor:
-        samples = samples.view([len(samples) // 2, 2, -1])
-        return torch.cosine_similarity(samples[:, 0], samples[:, 1])
 
     @property
     def parameter_statistics(self):

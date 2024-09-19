@@ -1,22 +1,24 @@
 import dgl
-from torch.utils.data import Dataset
-from binsim.disassembly.binaryninja import CFGBase
-from typing import List, Dict, Any, Tuple
-from abc import abstractmethod
-import random
-from binsim.neural.nn.globals.siamese import SiameseSampleFormat
 import torch
+import random
+import rocksdb
 import numpy as np
 from itertools import chain
+from abc import abstractmethod
+from torch.utils.data import Dataset
+from typing import List, Dict, Any, Tuple
+from binsim.disassembly.core import BinsimFunction
+from binsim.neural.nn.globals.siamese import SiameseSampleFormat, EmbeddingDistanceMetric
 
 __all__ = ['SampleDatasetBase', 'RandomSamplePairDatasetBase']
 
 
 class SampleDatasetBase(Dataset):
-    def __init__(self, samples: List[CFGBase],
+    def __init__(self, samples: List[BinsimFunction],
                  sample_id: List[int] = None,
                  tags: List[Any] = None,
                  *neural_input_args,
+                 neural_input_cache_rocks_file=None,
                  with_name=False,
                  **neural_input_kwargs):
         """
@@ -35,6 +37,8 @@ class SampleDatasetBase(Dataset):
         self._tags = tags
         self._with_name = with_name
         self._sample_id = sample_id
+        self._neural_input_cache_rocks_file = neural_input_cache_rocks_file
+        self._neural_input_cache_rocks_db = None
 
         if with_name:
             assert sample_id is not None, "If with_name is True, sample_id must be provided."
@@ -42,6 +46,12 @@ class SampleDatasetBase(Dataset):
             assert tags is not None, "If with_name is True, tags must be provided."
             assert len(tags) == len(samples), "The length of tags must be equal to the length of data."
 
+    @property
+    def neural_input_cache_file(self):
+        if self._neural_input_cache_rocks_db is None:
+            self._neural_input_cache_rocks_db = rocksdb.DB(self._neural_input_cache_rocks_file,
+                                                           rocksdb.Options(), read_only=True)
+        return self._neural_input_cache_rocks_db
 
     @staticmethod
     def batch_graph(graphs: List[dgl.DGLGraph]):
@@ -57,7 +67,12 @@ class SampleDatasetBase(Dataset):
         return len(self._data)
 
     def transform_sample(self, sample):
-        return sample.as_neural_input(*self._neural_input_args, **self._neural_input_kwargs)
+        if self._neural_input_cache_rocks_file is None:
+            return sample.as_neural_input(*self._neural_input_args, **self._neural_input_kwargs)
+        else:
+            data = self.neural_input_cache_file.get(sample.content_hash.encode())
+            return sample.preprocess_neural_input_raw(data, **self._neural_input_kwargs)
+
 
     def __getitem__(self, item):
         cfg = self._data[item]
@@ -66,9 +81,20 @@ class SampleDatasetBase(Dataset):
             return sample, self._sample_id[item], cfg.name, self._tags[item]
         return sample
 
+    def collate_fn(self, data) -> Any:
+        if self._neural_input_cache_rocks_file is None:
+            return self.collate_fn_py(data, **self._neural_input_kwargs)
+        else:
+            return self.collate_fn_raw(data, **self._neural_input_kwargs)
+
     @staticmethod
     @abstractmethod
-    def collate_fn(data) -> Any:
+    def collate_fn_py(data, **kwargs):
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def collate_fn_raw(data, **kwargs):
         pass
 
     def collate_fn_with_name(self, data) -> Any:
@@ -79,8 +105,8 @@ class SampleDatasetBase(Dataset):
 
 
 class RandomSamplePairDatasetBase(Dataset):
-    def __init__(self, data: Dict[str, List[CFGBase]],
-                 *args, sample_format: SiameseSampleFormat = None, **kwargs):
+    def __init__(self, data: Dict[str, List[BinsimFunction]],
+                 *args, sample_format: SiameseSampleFormat = None, neural_input_cache_rocks_file=None,  **kwargs):
         super().__init__()
         self._data = data
         self._keys = None
@@ -88,6 +114,14 @@ class RandomSamplePairDatasetBase(Dataset):
         self._neural_input_args = args
         self._neural_input_kwargs = kwargs
         self.sample_format = sample_format
+        self._neural_input_cache_rocks_file = neural_input_cache_rocks_file
+        self._neural_input_cache_rocks_db = None
+
+    @property
+    def neural_input_cache_file(self):
+        if self._neural_input_cache_rocks_db is None:
+            self._neural_input_cache_rocks_db = rocksdb.DB(self._neural_input_cache_rocks_file, rocksdb.Options(), read_only=True)
+        return self._neural_input_cache_rocks_db
 
     @property
     def sample_format(self):
@@ -103,14 +137,11 @@ class RandomSamplePairDatasetBase(Dataset):
 
         if isinstance(value, str):
             value = SiameseSampleFormat(value)
-        if value != SiameseSampleFormat.Proxy:
-            self._keys = list()
-            for func_name, cfg_list in self._data.items():
-                self._keys.extend([(func_name, idx) for idx in range(len(cfg_list))])
-            self._name2id = {key: idx for idx, key in enumerate(self._data.keys())}
-        else:
-            raise NotImplementedError("Supportr for Proxy format has not been implemented yet.")
 
+        self._keys = list()
+        for func_name, cfg_list in self._data.items():
+            self._keys.extend([(func_name, idx) for idx in range(len(cfg_list))])
+        self._name2id = {key: idx for idx, key in enumerate(self._data.keys())}
         self._sample_format = value
 
     @property
@@ -119,7 +150,11 @@ class RandomSamplePairDatasetBase(Dataset):
         raise NotImplementedError
 
     def transform_sample(self, sample):
-        return sample.as_neural_input(*self._neural_input_args, **self._neural_input_kwargs)
+        if self._neural_input_cache_rocks_file is None:
+            return sample.as_neural_input(*self._neural_input_args, **self._neural_input_kwargs)
+        else:
+            data =  self.neural_input_cache_file.get(sample.content_hash.encode())
+            return sample.preprocess_neural_input_raw(data, **self._neural_input_kwargs)
 
     def __len__(self):
         if self.sample_format == SiameseSampleFormat.Pair:
@@ -129,8 +164,7 @@ class RandomSamplePairDatasetBase(Dataset):
 
     def __getitem__(self, item):
         if self.sample_format in (
-                SiameseSampleFormat.Pair, SiameseSampleFormat.SemiHardPair, SiameseSampleFormat.SemiHardTriplet,
-                SiameseSampleFormat.InfoNCESamples):
+                SiameseSampleFormat.Pair, SiameseSampleFormat.PositivePair, SiameseSampleFormat.PositivePairSplit):
             return self._generate_sample_paris(item)
         elif self.sample_format == SiameseSampleFormat.Triplet:
             return self._generate_sample_triplet(item)
@@ -193,9 +227,7 @@ class RandomSamplePairDatasetBase(Dataset):
                 return self.transform_sample(anchor), anchor_id, \
                     self.transform_sample(negative), negative_id, \
                     0
-        elif self.sample_format in (SiameseSampleFormat.SemiHardPair,
-                                    SiameseSampleFormat.SemiHardTriplet,
-                                    SiameseSampleFormat.InfoNCESamples):
+        elif self.sample_format in (SiameseSampleFormat.PositivePair, SiameseSampleFormat.PositivePairSplit):
             anchor_name, anchor_idx = self._keys[item]
             anchor = self._data[anchor_name][anchor_idx]
             anchor_id = self._name2id[anchor_name]
@@ -211,27 +243,41 @@ class RandomSamplePairDatasetBase(Dataset):
             return self.transform_sample(anchor), anchor_id, \
                 self.transform_sample(positive), anchor_id, \
                 1
-
     def collate_fn(self, data) -> Tuple[Any, torch.Tensor, torch.Tensor]:
         data = list(zip(*data))
+        if self._neural_input_cache_rocks_file is None:
+            samplers_collate_fn = self.SingleSampleClass.collate_fn_py
+        else:
+            samplers_collate_fn = self.SingleSampleClass.collate_fn_raw
         match self.sample_format:
             case SiameseSampleFormat.Pair:
                 anchor, anchor_ids, another, another_ids, labels = data
-                samples = self.SingleSampleClass.collate_fn(chain.from_iterable(zip(anchor, another)))
+                samples = samplers_collate_fn(list(chain.from_iterable(zip(anchor, another))),
+                                              **self._neural_input_kwargs)
                 labels = torch.from_numpy(np.array(labels, dtype=np.float32))
                 anchor_ids, another_ids = torch.tensor(anchor_ids), torch.tensor(another_ids)
                 sample_ids = torch.stack([anchor_ids, another_ids], dim=1)
             case SiameseSampleFormat.Triplet:
                 anchors, anchor_ids, positives, positive_ids, negative, negative_ids = data
-                samples = self.SingleSampleClass.collate_fn(chain.from_iterable(zip(anchors, positives, negative)))
+                samples = samplers_collate_fn(list(chain.from_iterable(zip(anchors, positives, negative))),
+                                                            **self._neural_input_kwargs)
                 labels = None
                 sample_ids = torch.stack([anchor_ids, positive_ids, negative_ids], dim=1)
-            case SiameseSampleFormat.SemiHardPair | SiameseSampleFormat.SemiHardTriplet | SiameseSampleFormat.InfoNCESamples:
+            case SiameseSampleFormat.PositivePair:
                 anchors, anchor_ids, positives, positive_ids, labels = data
-                samples = self.SingleSampleClass.collate_fn(list(chain.from_iterable(zip(anchors, positives))))
+                samples = samplers_collate_fn(list(chain.from_iterable(zip(anchors, positives))), **self._neural_input_kwargs)
                 anchor_ids, positive_ids = torch.tensor(anchor_ids), torch.tensor(positive_ids)
                 sample_ids = torch.stack([anchor_ids, positive_ids], dim=1)
                 labels = torch.tensor(labels)
+            case SiameseSampleFormat.PositivePairSplit:
+                anchors, anchor_ids, positives, positive_ids, labels = data
+                anchors = samplers_collate_fn(anchors, **self._neural_input_kwargs)
+                positives = samplers_collate_fn(positives, **self._neural_input_kwargs)
+                samples = (anchors, positives)
+                anchor_ids, positive_ids = torch.tensor(anchor_ids), torch.tensor(positive_ids)
+                sample_ids = torch.stack([anchor_ids, positive_ids], dim=1)
+                labels = torch.tensor(labels)
+
             case _:
                 raise NotImplementedError
         return samples, sample_ids.reshape([-1]), labels

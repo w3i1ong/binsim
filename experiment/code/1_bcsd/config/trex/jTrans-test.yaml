@@ -1,0 +1,24 @@
+model:
+  model-source: 'pretrained'
+  pretrained-weights: '/path/to/your/root/models/jTrans-finetune'
+general:
+  gpu: 0
+  random-seed: 0
+  mixed-precision: False
+  num-workers: 10
+  test-times: 10
+  pool-size: 1000
+  batch-size: 500
+evaluation:
+  metrics:
+    - 'recall@1'
+  options:
+    cross-optimization-O0-O3:
+      - 'x64:optimization:ukn-ukn:O0'
+      - 'x64:linux:ukn-ukn:O3'
+    cross-optimization-O1-O3:
+      - 'x64:linux:ukn-ukn:O1'
+      - 'x64:linux:ukn-ukn:O3'
+    cross-optimization-O2-O3:
+      - 'x64:linux:ukn-ukn:O2'
+      - 'x64:linux:ukn-ukn:O3'

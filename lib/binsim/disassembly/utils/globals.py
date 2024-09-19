@@ -1,13 +1,17 @@
 from enum import Enum
 
-
 class GraphType(Enum):
-    PDG = 'PDG'
-    TokenCFG = 'TokenCFG'
     ACFG = 'ACFG'
-    ByteCode = 'ByteCode'
     CodeAST = 'CodeAST'
+    ByteCode = 'ByteCode'
+
+    TokenCFG = 'TokenCFG'
+    TokenSeq = 'TokenSeq'
+
     InsCFG = 'InsCFG'
+    InsSeq = 'InsSeq'
+
+    PDG = 'PDG'
     MnemonicCFG = 'MnemonicCFG'
     JTransSeq = 'JTransSeq'
 

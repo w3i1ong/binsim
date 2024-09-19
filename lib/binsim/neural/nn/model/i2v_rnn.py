@@ -1,21 +1,20 @@
-import dgl
-import torch
+import dgl,torch
 from dgl import sum_nodes
 from torch.nn import Linear, GRU
-from torch.nn.utils.rnn import pack_padded_sequence
 from binsim.neural.lm import Ins2vec
-from binsim.neural.nn.base.model import GraphEmbeddingModelBase
+from torch.nn.utils.rnn import pack_padded_sequence
 from binsim.neural.nn.layer import Structure2vec, DAGGRU
+from binsim.neural.nn.base.model import GraphEmbeddingModelBase
 
 
 class I2vRNN(GraphEmbeddingModelBase):
     def __init__(self, out_dim,
+                 distance_func,
                  ins2vec: Ins2vec,
                  fixed_length=150,
                  use_dag=False,
                  gnn_layers=2,
                  bidirectional=False,
-                 sample_format=None,
                  device=None,
                  dtype=None):
         """
@@ -31,12 +30,12 @@ class I2vRNN(GraphEmbeddingModelBase):
         :param gnn_layers: The number of GNN layers.
         :param bidirectional: Whether to use bidirectional RNN.
         """
-        super(I2vRNN, self).__init__(sample_format=sample_format)
+        super(I2vRNN, self).__init__(distance_func=distance_func)
         factory_kwargs = {'device': device, 'dtype': dtype}
         self.bidirectional = bidirectional
         if isinstance(ins2vec, str):
             ins2vec = Ins2vec.load(ins2vec)
-        self.ins2vec = ins2vec.as_torch_model(freeze=True).to(device)
+        self.ins2vec = ins2vec.as_torch_model(freeze=True, **factory_kwargs)
         self.gru = GRU(ins2vec.embed_dim,
                        out_dim // (bidirectional + 1),
                        num_layers=2,
@@ -54,8 +53,6 @@ class I2vRNN(GraphEmbeddingModelBase):
                              bias=False,
                              **factory_kwargs)
         self.fixed_length = fixed_length
-        self.loss_func = torch.nn.MSELoss(reduction='mean')
-        self.margin = 0.5
 
     @property
     def graphType(self):
@@ -63,28 +60,9 @@ class I2vRNN(GraphEmbeddingModelBase):
         return GraphType.TokenCFG
 
     @property
-    def pairDataset(self):
-        from binsim.neural.utils.data import InsStrCFGSamplePairDataset
-        return InsStrCFGSamplePairDataset
-
-    @property
     def sampleDataset(self):
-        from binsim.neural.utils.data import InsStrCFGSampleDataset
-        return InsStrCFGSampleDataset
-
-    def siamese_loss(self, embeddings: torch.Tensor, labels: torch.Tensor, sample_ids: torch.Tensor) -> torch.Tensor:
-        labels = torch.mul(torch.sub(labels, 0.5), 2)
-        samples = embeddings.view([len(embeddings) // 2, 2, -1])
-        return self.loss_func(labels, torch.cosine_similarity(samples[:, 0], samples[:, 1]))
-
-    def similarity(self, samples: torch.Tensor) -> torch.Tensor:
-        samples = samples.view([len(samples) // 2, 2, -1])
-        return 1 - torch.cosine_similarity(samples[:, 0], samples[:, 1])
-
-    def pairwise_similarity(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        x = x / torch.sqrt(torch.sum(x ** 2, dim=1, keepdim=True) + torch.tensor(1e-08, device=x.device))
-        y = y / torch.sqrt(torch.sum(y ** 2, dim=1, keepdim=True) + torch.tensor(1e-08, device=x.device))
-        return 1 - x @ y.T
+        from binsim.neural.utils.data import TokenCFGSampleDataset
+        return TokenCFGSampleDataset
 
     def generate_embedding(self, graph: dgl.DGLGraph, features: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
         """
@@ -123,9 +101,6 @@ class I2vRNN(GraphEmbeddingModelBase):
         res = self.linear(sum_nodes(graph, 'x'))
         graph.ndata.pop('x')
         return res
-
-    def triplet_loss(self, anchors: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError("Triplet loss is not implemented for I2vRNN.")
 
     @property
     def parameter_statistics(self):

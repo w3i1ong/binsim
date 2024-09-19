@@ -1,17 +1,20 @@
 import torch
 import torch.nn as nn
+from typing import List
 from binsim.neural.nn.base.model import GraphEmbeddingModelBase
-from binsim.neural.nn.distance import PairwiseEuclidianDistance, EuclidianDistance
-from typing import Tuple, List
 
 
 class AlphaDiff(GraphEmbeddingModelBase):
-    def __init__(self, out_dim, sample_format=None, dtype=None, device=None, margin=1, epsilon=0.75):
+    def __init__(self, out_dim, distance_func, dtype=None, device=None, epsilon=0.75):
         """
+        :param out_dim: The dimension of the output embedding.
+        :param distance_func: The distance function used to calculate the similarity between two embeddings.
+        :param dtype: The data type of the model parameters.
+        :param device: The device of the model parameters.
+        :param epsilon: The epsilon value used in the similarity calculation.
         An implementation of [Alpha-diff](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=9000005).
-
         """
-        super(AlphaDiff, self).__init__(sample_format=sample_format)
+        super(AlphaDiff, self).__init__(distance_func=distance_func)
         factory_kwargs = {'device': device, 'dtype': dtype}
         # The structure of this model can be found at https://twelveand0.github.io/AlphaDiff-ASE2018-Appendix.
         self.conv_layers = nn.Sequential(
@@ -50,10 +53,7 @@ class AlphaDiff(GraphEmbeddingModelBase):
             nn.Flatten(),
             nn.Linear(18432, out_dim, bias=True, **factory_kwargs)
         )
-        self._pairwise_distance = PairwiseEuclidianDistance()
-        self._distance = EuclidianDistance()
         self._epsilon = epsilon
-        self._margin = margin
 
 
     @property
@@ -61,14 +61,10 @@ class AlphaDiff(GraphEmbeddingModelBase):
         raise NotImplementedError(f"graphType has not been implemented for {self.__class__}")
 
     @property
-    def pairDataset(self):
-        raise NotImplementedError(f"pairDataloader has not been implemented for {self.__class__}")
-
-    @property
     def sampleDataset(self):
         raise NotImplementedError(f"sampleDataloader has not been implemented for {self.__class__}")
 
-    def generate_embedding(self, bytecode: torch.Tensor, degrees: torch.Tensor) -> List[torch.Tensor]:
+    def generate_embedding(self, bytecode: torch.Tensor, degrees: torch.Tensor) -> torch.Tensor:
         """
         Calculate the embedding for given bytecode.
         :param bytecode: A Tensor of [batch_size, 10000]. The bytecode sequences of functions to be processed.
@@ -82,20 +78,27 @@ class AlphaDiff(GraphEmbeddingModelBase):
         embedding = torch.transpose(embedding, 1, 3)
         return torch.cat([self.flatten_layers(embedding), degrees], dim=1)
 
-    def similarity(self, embeddings: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+    def similarity(self, embeddings: torch.Tensor) -> torch.Tensor:
         """
         Calculate the similarity between a batch of sample pairs.
         :param embeddings: A batch of embeddings, with shape [batch_size*2, embedding_size].
         :return: Similarity between each sample pair, with shape [batch_size].
         """
-        embeddings, degrees = embeddings[:, :-2], embeddings[:, -2:]
-        degrees = degrees.view([-1, 2, 2])
-        embeddings = embeddings.view([len(embeddings) // 2, 2, -1])
-        return self._distance(embeddings[:, 0], embeddings[:, 1]) + \
-            1 - self._epsilon ** self._distance(degrees[:, 0], degrees[:, 1])
+        embeddings = embeddings[:, :-2]
+        return super().similarity(embeddings)
 
-    def pairwise_similarity(self, x: Tuple[torch.Tensor, torch.Tensor],
-                            y: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+    def similarity_for_search(self, embeddings: torch.Tensor) -> torch.Tensor:
+        embeddings, degrees = embeddings[:, :-2], embeddings[:, -2:]
+        x_degrees, y_degrees = degrees[::2], degrees[1::2]
+        return (super().similarity_for_search(embeddings) +
+                1 - self._epsilon ** torch.sqrt(torch.sum(x_degrees[:, None, :] - y_degrees[None, :], dim=-1) ** 2))
+
+    def pairwise_similarity(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        x, y = x[:, :-2], y[:, :-2]
+        return super().pairwise_similarity(x, y)
+
+    def pairwise_similarity_for_search(self, x: torch.Tensor,
+                            y: torch.Tensor) -> torch.Tensor:
         """
         Calculate the pairwise similarity between two batch of samples.
         :param x: A batch of embeddings, with shape [batch_size_x, embedding_size].
@@ -104,13 +107,8 @@ class AlphaDiff(GraphEmbeddingModelBase):
         """
         x, x_degrees = x[:, :-2], x[:, -2:]
         y, y_degrees = y[:, :-2], y[:, -2:]
-        return self._pairwise_distance(x, y) + 1 - self._epsilon ** self._pairwise_distance(x_degrees, y_degrees)
-
-    def siamese_loss(self, embeddings: torch.Tensor, labels: torch.Tensor, sample_ids: torch.Tensor) -> torch.Tensor:
-        embeddings, degrees = embeddings[:, :-2], embeddings[:, -2:]
-        embeddings = embeddings.view([len(embeddings) // 2, 2, -1])
-        distance = self._distance(embeddings[:, 0], embeddings[:, 1])
-        return torch.mean(labels * distance + (1 - labels) * torch.clip(self.margin - distance, 0))
+        return (super().pairwise_similarity(x, y) +
+                1 - self._epsilon ** torch.sqrt(torch.sum(x_degrees[:, None, :] - y_degrees[None, :], dim=-1) ** 2))
 
     @property
     def parameter_statistics(self):

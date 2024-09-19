@@ -1,8 +1,10 @@
 import os
+import glob
 import shutil
 import argparse
 from enum import Enum
 from tqdm import tqdm
+from binsim.disassembly.utils import is_elf_file
 
 class Dataset(Enum):
     MINE = 'mine'
@@ -10,6 +12,7 @@ class Dataset(Enum):
     CISCO = 'cisco'
     TREX = 'trex'
     BINKIT = 'binkit'
+    Vul = 'vulnerability'
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Convert dataset')
@@ -21,6 +24,7 @@ def parse_args():
     sub_parsers.add_parser(Dataset.BINARYCORP.value)
     sub_parsers.add_parser(Dataset.TREX.value)
     sub_parsers.add_parser(Dataset.BINKIT.value)
+    sub_parsers.add_parser(Dataset.Vul.value)
     return parser.parse_args()
 
 
@@ -83,11 +87,9 @@ def convert_binarycorp_dataset(src_dir, dst_dir):
         for file in tqdm(os.listdir(subset_dir)):
             if os.path.isdir(os.path.join(subset_dir, file)):
                 continue
-            *filename, opt_level, _ = file.split('-')
-            filename = '-'.join(filename)
+            filename, opt_level, _ = file.rsplit('-', 2)
             dst_file_dir = os.path.join(dst_dir, subset, 'ukn', 'x64', 'linux', 'gcc', opt_level)
             os.makedirs(dst_file_dir, exist_ok=True)
-
             dst_file_path = os.path.join(dst_file_dir, filename)
             src_file_path = os.path.join(subset_dir, file)
             shutil.copy(src_file_path, dst_file_path)
@@ -182,6 +184,23 @@ def convert_binkit_dataset(src_dir, dst_dir):
             dst_file_path = os.path.join(dst_file_dir, filename)
             shutil.copy(src_file_path, dst_file_path)
 
+def convert_vul_dataset(src_dir, dst_dir):
+    for project_dir in glob.glob(f"{src_dir}/*/*/*/*/*/*"):
+        *_, software, version, arch, system, compiler, opt_level = project_dir.split('/')
+        for root, dirs, files in os.walk(project_dir):
+            for file in files:
+                src_file = os.path.join(root, file)
+                if os.path.islink(src_file):
+                    continue
+                if not is_elf_file(src_file):
+                    continue
+                target_dir = os.path.join(dst_dir, software, version, arch, system, compiler, opt_level)
+                os.makedirs(target_dir, exist_ok=True)
+                dst_file = os.path.join(target_dir, file)
+                shutil.copy(src_file, dst_file)
+
+
+
 def main():
     args = parse_args()
 
@@ -196,7 +215,8 @@ def main():
             convert_trex_dataset(args.original, args.converted)
         case Dataset.BINKIT:
             convert_binkit_dataset(args.original, args.converted)
-
+        case Dataset.Vul:
+            convert_vul_dataset(args.original, args.converted)
 
 if __name__ == '__main__':
     main()

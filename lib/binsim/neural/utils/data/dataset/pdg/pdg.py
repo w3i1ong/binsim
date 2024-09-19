@@ -1,8 +1,8 @@
 from torch.utils.data import Dataset
 from typing import List, Tuple, Dict
-from binsim.disassembly.binaryninja import ProgramDependencyGraph
+from binsim.disassembly.backend.binaryninja import ProgramDependencyGraph
 from .instruction import BatchedFunctionSeq
-from binsim.disassembly.binaryninja import BSInsOperand, BSInstruction, BSInsOperandType
+from binsim.disassembly.backend.binaryninja import BSInstruction, BSInsOperandType
 import torch
 import random
 

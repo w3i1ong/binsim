@@ -1,0 +1,58 @@
+name: i2v-rnn
+
+common:
+  record-dir: "/path/to/your/root/binsim-record/trex/i2v-rnn"
+  log:
+    level: "info"
+    file: True
+
+model:
+  type: "i2v_rnn"
+  kwargs:
+    ins2vec: "/path/to/your/root/processed-dataset/trex/TokenCFG/ins2vec-default.pkl"
+    out-dim: 256
+  distance:
+    type: 'cosine'
+
+dataset:
+  type: 'TokenCFG'
+  path: '/path/to/your/root/processed-dataset/trex/TokenCFG'
+  name: 'default'
+  merge: 'default'
+  small-graph-threshold: 5
+
+
+train:
+  general:
+    epoch: 50
+    backward-steps: 1
+    gpu: 0
+    mixed-precision: False
+    num-workers: 20
+    batch-size: 250
+    choice-metric: 'nDCG@16'
+    use-momentum-model: False
+    queue-max-size: 4000
+
+  sampler:
+    dataset-sample-format: 'pair'
+    type:
+    kwargs:
+
+  loss:
+    type: "mse"
+    kwargs:
+
+  optimizer:
+    type: 'Adam'
+    lr: 0.001
+    kwargs:
+    lr-update-epoch:
+    lr-update-scale:
+
+  evaluation:
+    val-interval: 5
+    batch-size: 1000
+    metrics:
+      - 'recall@1'
+      - 'nDCG@16'
