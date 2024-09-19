@@ -1,0 +1,42 @@
+name: Asm2Vec
+
+dataset:
+  type: 'TokenCFG'
+  path: '/home/anonymous/Documents/binsim-dataset/processed/trex/'
+  name: 'default'
+
+train:
+  epoch: 50
+  embed-dim: 100
+  min-count: 10
+  window-size: 1
+  lr: 0.025
+
+test:
+  epoch: 5
+  metrics:
+    - 'mrr@1'
+    - 'recall@1'
+    - 'auc'
+    - 'nDCG@10'
+  combinations:
+    cross-optimization-x64-O1-O3:
+      - '0:x64:linux:ukn-ukn:O1'
+      - '0:x64:linux:ukn-ukn:O3'
+    cross-optimization-x64-O2-O3:
+      - '0:x64:linux:ukn-ukn:O2'
+      - '0:x64:linux:ukn-ukn:O3'
+    cross-optimization-x64-O0-O3:
+      - '0:x64:linux:ukn-ukn:O0'
+      - '0:x64:linux:ukn-ukn:O3'
+
+common:
+  record-dir: "./record/Asm2Vec"
+  num-workers: 10
+  max-walk-path: 1000
+  random-walk-num: 10
+
+log:
+  level: "info"
+  console: True
+

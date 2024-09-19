@@ -1,0 +1,16 @@
+ldr
+pld
+stm
+pli
+ldrex
+mar
+strex
+mvn
+str
+strexd
+ldm
+movt
+ldrexd
+mra
+mov
+pldw

@@ -1,0 +1,76 @@
+name: Gemini
+
+common:
+  record-dir: "./record/zero-daggru"
+  log:
+    level: "info"
+    file: True
+
+model:
+  type: "Gemini"
+  kwargs:
+    in_dim: 9
+    out_dim: 128
+    use_dag: True
+    gnn_layers: 1
+    zero: True
+
+dataset:
+  type: 'ACFG'
+  path: '/home/anonymous/Documents/binsim-dataset/processed/trex'
+  name: 'default'
+  merge: 'default'
+  kwargs:
+    expand-time: 1
+
+
+train:
+  general:
+    epoch: 50
+    backward-steps: 1
+    gpu: 2
+    mixed-precision: False
+    num-workers: 10
+    batch-size: 250
+    choice-metric: 'nDCG@10'
+
+  sampler:
+    type: semi-hard-pair
+    kwargs:
+
+  optimizer:
+    type: 'Adam'
+    lr: 0.001
+    kwargs:
+    lr-update-epoch:
+    lr-update-scale:
+
+
+  evaluation:
+    val-interval: 5
+    batch-size:
+      classification: 128
+      search: 256
+    metrics:
+      - 'recall@1'
+      - 'mrr@10'
+      - 'hit@10'
+      - 'recall@10'
+      - 'nDCG@10'
+
+test:
+  model:
+    model-source: 'recorded'
+  general:
+    gpu: 1
+    mixed-precision: False
+    num-workers: 10
+    batch-size:
+      classification: 128
+      search: 256
+  evaluation:
+    metrics:
+      - 'recall@1'
+      - 'mrr@10'
+      - 'recall@10'
+      - 'nDCG@10'

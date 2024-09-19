@@ -1,0 +1,11 @@
+results:
+  safe: "./record/safe"
+  ast-safe: "./record/ast-safe"
+  GraphEmbed: "./record/i2v-rnn"
+  ast-GraphEmbed: "./record/ast-GraphEmbed"
+  i2v-daggru: "./record/i2v-daggru"
+  Gemini: "./record/gemini"
+  Gemini-DAGGRU: "./record/feature-daggru"
+  Gemini-zero: "./record/zero-structure2vec"
+  DAGGRU-zero: "./record/zero-daggru"
+  rcfg2vec: "./record/rcfg2vec-100"

@@ -1,0 +1,58 @@
+dataset:
+  name: token-threshold-512
+  type: TokenCFG
+  binary: /home/anonymous/Documents/binsim-dataset/original/trex
+  dataset: /home/anonymous/Documents/binsim-dataset/processed/trex
+  kwargs:
+    imm_threshold: 512
+    offset_threshold: 512
+
+merge:
+  name: default
+  remove-duplicate: False
+  small-graph-threshold: 5
+  large-graph-threshold: 700
+  occurrence-threshold: 0
+  subset:
+    train:
+      - binutils
+      - curl
+      - ImageMagick
+      - libmicrohttpd
+      - libtomcrypt
+      - coreutils
+      - gmp
+    validation:
+      - putty
+      - sqlite
+      - findutils
+    test:
+      trex:
+        "./trex-test.yaml"
+  arch:
+    - x64
+    - arm32
+    - x86
+    - mips32
+
+
+disassemble:
+  workers: 20
+  verbose: True
+  keep-thunk: False
+  keep-large: False
+  large-ins-threshold: 1000000
+  large-graph-threshold: 700
+  keep-small: False
+  small-ins-threshold: 10
+  small-graph-threshold: 3
+  reanalysis: True
+  arch:
+    - x64
+    - arm32
+    - x86
+    - mips32
+
+log:
+  level: "info"
+  console: True

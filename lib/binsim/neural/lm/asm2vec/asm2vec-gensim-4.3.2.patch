@@ -1,0 +1,1146 @@
+Subject: [PATCH] Fix a strange bug. I didn't know how it happens, but I did fix it.
+---
+Index: gensim/models/word2vec.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/gensim/models/word2vec.py b/gensim/models/word2vec.py
+--- a/gensim/models/word2vec.py	(revision 2e5f3d2403da47e20af9947f3e5efa32abe581de)
++++ b/gensim/models/word2vec.py	(date 1697548510572)
+@@ -413,7 +413,7 @@
+             self.wv = KeyedVectors(vector_size)
+         # EXPERIMENTAL lockf feature; create minimal no-op lockf arrays (1 element of 1.0)
+         # advanced users should directly resize/adjust as desired after any vocab growth
+-        self.wv.vectors_lockf = np.ones(1, dtype=REAL)  # 0.0 values suppress word-backprop-updates; 1.0 allows
++        self.wv.vectors_lockf = np.ones(100, dtype=REAL)  # 0.0 values suppress word-backprop-updates; 1.0 allows
+ 
+         self.hashfxn = hashfxn
+         self.seed = seed
+Index: gensim/models/__init__.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/gensim/models/__init__.py b/gensim/models/__init__.py
+--- a/gensim/models/__init__.py	(revision 2e5f3d2403da47e20af9947f3e5efa32abe581de)
++++ b/gensim/models/__init__.py	(date 1697422601332)
+@@ -13,6 +13,7 @@
+ from .rpmodel import RpModel  # noqa:F401
+ from .logentropy_model import LogEntropyModel  # noqa:F401
+ from .word2vec import Word2Vec, FAST_VERSION  # noqa:F401
++from .asm2vec import Asm2Vec
+ from .doc2vec import Doc2Vec  # noqa:F401
+ from .keyedvectors import KeyedVectors  # noqa:F401
+ from .ldamulticore import LdaMulticore  # noqa:F401
+Index: gensim/models/asm2vec_inner.pyx
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/gensim/models/asm2vec_inner.pyx b/gensim/models/asm2vec_inner.pyx
+new file mode 100644
+--- /dev/null	(date 1698246683758)
++++ b/gensim/models/asm2vec_inner.pyx	(date 1698246683758)
+@@ -0,0 +1,277 @@
++import cython
++import numpy as np
++from numpy import zeros, float32 as REAL
++cimport numpy as np
++import cython
++
++from libc.string cimport memset, memcpy
++
++# scipy <= 0.15
++try:
++    from scipy.linalg.blas import fblas
++except ImportError:
++    # in scipy > 0.15, fblas function has been removed
++    import scipy.linalg.blas as fblas
++
++from gensim.models.word2vec_inner cimport bisect_left, random_int32, sscal, REAL_t, EXP_TABLE, our_dot, our_saxpy
++from gensim.models.doc2vec_inner cimport fast_document_dm_neg
++
++DEF MAX_DOCUMENT_LEN = 80000
++
++cdef int ONE = 1
++
++DEF EXP_TABLE_SIZE = 1000
++DEF MAX_EXP = 6
++
++cdef init_a2v_config(Asm2VecConfig *c, model, alpha, learn_tag, learn_tokens, learn_hidden,
++                     train_tokens=False, work=None, neu1=None, operands=None, token_vectors=None,token_locks=None,
++                     tag_vectors=None, tag_locks=None, dv_count=0):
++    c[0].negative = model.negative
++    c[0].sample = (model.sample != 0)
++    c[0].learn_tag = learn_tag
++    c[0].learn_tokens = learn_tokens
++    c[0].learn_hidden = learn_hidden
++    c[0].train_tokens = train_tokens
++    c[0].cbow_mean = model.cbow_mean
++
++    if '\0' in model.wv:
++        c[0].null_token_index = model.wv.get_index('\0')
++
++    c[0].window = model.window
++    c[0].workers = model.workers
++    c[0].dv_count = dv_count
++
++    # default vectors, locks from syn0/doctag_syn0
++    if token_vectors is None:
++        token_vectors = model.wv.vectors
++    c[0].token_vectors = <REAL_t *> (np.PyArray_DATA(token_vectors))
++
++    if tag_vectors is None:
++        tag_vectors = model.dv.vectors
++    c[0].tag_vectors = <REAL_t *> (np.PyArray_DATA(tag_vectors))
++
++    if token_locks is None:
++        token_locks = model.wv.vectors_lockf
++    c[0].token_locks = <REAL_t *> (np.PyArray_DATA(token_locks))
++    c[0].token_locks_len = len(token_locks)
++
++    if tag_locks is None:
++        tag_locks = model.dv.vectors_lockf
++    c[0].tag_locks = <REAL_t *> (np.PyArray_DATA(tag_locks))
++    c[0].tag_locks_len = len(tag_locks)
++
++    # convert Python structures to primitive types, so we can release the GIL
++    if work is None:
++        work = zeros(model.layer1_size, dtype=REAL)
++    c[0].work = <REAL_t *> np.PyArray_DATA(work)
++
++    if neu1 is None:
++        neu1 = zeros(model.layer1_size, dtype=REAL)
++    c[0].neu1 = <REAL_t *> np.PyArray_DATA(neu1)
++
++    if operands is None:
++        operands = zeros(model.wv.vector_size, dtype=REAL)
++    c[0].operands = <REAL_t *> np.PyArray_DATA(operands)
++
++    c[0].alpha = alpha
++    c[0].layer1_size = model.layer1_size
++    c[0].vector_size = model.wv.vector_size
++
++    if c[0].negative:
++        c[0].syn1neg = <REAL_t *>(np.PyArray_DATA(model.syn1neg))
++        c[0].cum_table = <np.uint32_t *>(np.PyArray_DATA(model.cum_table))
++        c[0].cum_table_len = len(model.cum_table)
++    if c[0].negative or c[0].sample:
++        c[0].next_random = (2**24) * model.random.randint(0, 2**24) + model.random.randint(0, 2**24)
++
++@cython.boundscheck(False)
++cpdef train_document_dm_asm2vec(model, list functions, alpha, work=None, neu1=None, operands=None,
++                              learn_tags=True, learn_tokens=True, learn_hidden=True,
++                              token_vectors=None, token_locks=None, tag_vectors=None, tag_locks=None,
++                              tag2idx=None):
++    """Update distributed memory model ("PV-DM") by training on a single Function.
++    This method implements the DM model with a projection (input) layer that is either the sum or mean of the context
++    vectors, depending on the model's `dm_mean` configuration field.
++
++    Called internally from :meth:`~gensim.models.doc2vec.Asm2Vec.train` and
++    :meth:`~gensim.models.asm2vec.Asm2vec.infer_vector`.
++
++    Parameters
++    ----------
++    model : :class:`~gensim.models.asm2vec.Asm2Vec`
++        The model to train.
++    functions : List[gensim.models.asm2vec.Function]
++        The input function as a list of instructions to be used for training. Each token in instructions will be looked
++        up in the model's vocabulary.
++    alpha : float
++        Learning rate.
++    work : np.ndarray, optional
++        Private working memory for each worker.
++    neu1 : np.ndarray, optional
++        Private working memory for each worker.
++    operands: np.ndarray, optional
++        Private working memory for each worker.
++    learn_tags : bool, optional
++        Whether the tag vectors should be updated.
++    learn_tokens : bool, optional
++        Word vectors will be updated exactly as per Word2Vec skip-gram training only if **both**
++        `learn_words` and `train_words` are set to True.
++    learn_hidden : bool, optional
++        Whether the weights of the hidden layer will be updated.
++    token_vectors : numpy.ndarray, optional
++        The vector representation for each word in the vocabulary. If None, these will be retrieved from the model.
++    token_locks : numpy.ndarray, optional
++        A learning lock factor for each weight in the hidden layer for words, value 0 completely blocks updates,
++        a value of 1 allows to update word-vectors.
++    tag_vectors : numpy.ndarray, optional
++        Vector representations of the tags. If None, these will be retrieved from the model.
++    tag_locks : numpy.ndarray, optional
++        The lock factors for each tag, same as `word_locks`, but for document-vectors.
++
++    Returns
++    -------
++    int
++        Number of words in the input document that were actually used for training.
++
++    """
++    cdef Asm2VecConfig c
++
++    cdef REAL_t  inv_count_opnd, inv_count
++    cdef int i, j, k, m, o, z, func_len, tag_idx, token_idx
++    cdef int window_start, window_end, window_center, current_position, current_window_center
++    cdef int window_start_idx, window_end_idx, window_center_idx
++    cdef int t, predict_word_index
++    cdef long result = 0
++    cdef REAL_t ONEF = <REAL_t> 1.0
++    cdef dict dv_key_to_index = model.dv.key_to_index, wv_key_to_index = model.wv.key_to_index
++    cdef str func_name, operand
++    cdef list instructions
++    cdef operator_index, operand_index, tag_index
++
++    init_a2v_config(&c, model, alpha, learn_tags, learn_tokens, learn_hidden, train_tokens=False,
++                    work=work, neu1=neu1, operands=operands, token_vectors=token_vectors, token_locks=token_locks,
++                    tag_vectors=tag_vectors, tag_locks=tag_locks)
++    c.function_num = <int>len(functions)
++
++    i = 0
++    for j, function in enumerate(functions):
++        # save the number of instructions the function
++        func_name, instructions = function.tag, function.instructions
++
++        # check whether the buffer is enough
++        t = 1 + 1 + len(instructions) * 2 + <int>sum([len(ins.operands) for ins in instructions])
++        if i + t >= MAX_DOCUMENT_LEN:
++            c.function_num = j
++            break
++        result += t
++
++        c.token_idx[i] = <int>len(instructions)
++        i += 1
++        # save the index of function's name
++        if tag2idx is not None:
++            tag_index = <int>tag2idx[func_name]
++        else:
++            tag_index = <int>dv_key_to_index[func_name]
++        c.token_idx[i] = tag_index
++        i += 1
++        # save the indexes of tokens in the function
++        for instruction in instructions:
++            # number of tokens in the instruction
++            c.token_idx[i] = <int>len(instruction.operands) + 1
++            i += 1
++            # the index of the operator
++            operator_index = <int>wv_key_to_index.get(instruction.operator, -1)
++            if operator_index != -1:
++                c.token_idx[i] = operator_index
++            else:
++                c.token_idx[i] = c.null_token_index
++                result -= 1
++            i += 1
++            # the indexes of the operands
++            for operand in instruction.operands:
++                operand_index = <int>wv_key_to_index.get(operand, -1)
++                if operand_index != -1:
++                    c.token_idx[i] = operand_index
++                else:
++                    c.token_idx[i] = c.null_token_index
++                    result -= 1
++                i += 1
++
++    with nogil:
++        token_idx = 0
++        for i in range(c.function_num):
++            func_len = c.token_idx[token_idx]
++            token_idx += 1
++            tag_idx = c.token_idx[token_idx]
++            token_idx += 1
++
++            window_start_idx = window_center_idx = window_end_idx = 0
++            window_start = window_center = window_end = token_idx
++
++            for window_center_idx in range(func_len):
++                while window_center_idx - window_start_idx > c.window:
++                    window_start_idx += 1
++                    window_start = window_start + c.token_idx[window_start] + 1
++
++                while window_end_idx < func_len and window_end_idx - window_center_idx <= c.window:
++                    window_end = window_end + c.token_idx[window_end] + 1
++                    window_end_idx += 1
++
++                current_window_center = window_center
++                window_center = window_center + c.token_idx[window_center] + 1
++
++
++                if window_end_idx - window_start_idx < 1 + 2* c.window:
++                    continue
++
++                for predict_word_index in range(current_window_center+1, window_center):
++                    memset(c.neu1, 0, c.layer1_size * cython.sizeof(REAL_t))
++                    current_position = window_start
++
++                    while current_position != window_end:
++                        if current_position != window_center:
++                            our_saxpy(&c.vector_size, &ONEF, &c.token_vectors[c.token_idx[current_position+1] * c.vector_size],
++                                      &ONE, c.neu1, &ONE)
++
++                            memset(c.operands, 0, c.vector_size * cython.sizeof(REAL_t))
++                            inv_count_opnd = <REAL_t> 1.0
++                            for j in range(current_position + 2, current_position + c.token_idx[current_position] + 1):
++                                our_saxpy(&c.vector_size, &ONEF, &c.token_vectors[c.token_idx[j] * c.vector_size],
++                                          &ONE, c.operands, &ONE)
++                            if c.token_idx[current_position] - 1 > 0:
++                                inv_count_opnd = ONEF / (c.token_idx[current_position] - 1)
++                            sscal(&c.vector_size, &inv_count_opnd, c.operands, &ONE)
++                            our_saxpy(&c.vector_size, &ONEF, c.operands, &ONE, &c.neu1[c.vector_size], &ONE)
++                        current_position = current_position + c.token_idx[current_position] + 1
++                    our_saxpy(&c.layer1_size, &ONEF, &c.tag_vectors[tag_idx * c.layer1_size], &ONE, c.neu1, &ONE)
++                    inv_count = ONEF / (window_end_idx - window_start_idx)
++                    sscal(&c.layer1_size, &inv_count, c.neu1, &ONE)
++                    memset(c.work, 0, c.layer1_size * cython.sizeof(REAL_t))
++                    c.next_random = fast_document_dm_neg(c.negative, c.cum_table, c.cum_table_len, c.next_random,
++                                                         c.neu1, c.syn1neg, c.token_idx[predict_word_index], c.alpha, c.work,
++                                                         c.layer1_size,
++                                                         c.learn_hidden)
++                    sscal(&c.layer1_size, &inv_count, c.work, &ONE)
++                    if c.learn_tag:
++                        our_saxpy(&c.layer1_size, &c.tag_locks[tag_idx % c.tag_locks_len], c.work,
++                                  &ONE, &c.tag_vectors[tag_idx * c.layer1_size], &ONE)
++
++                    if c.learn_tokens:
++                        current_position = window_start
++                        while current_position != window_end:
++                            if current_position != window_center:
++                                our_saxpy(&c.vector_size, &c.token_locks[c.token_idx[current_position+1] % c.token_locks_len],
++                                          c.work, &ONE, &c.token_vectors[c.token_idx[current_position+1] * c.vector_size],
++                                          &ONE)
++                                memset(c.operands, 0, c.vector_size * cython.sizeof(REAL_t))
++                                inv_count_opnd = <REAL_t> 1.0
++                                our_saxpy(&c.vector_size, &ONEF, &c.work[c.vector_size], &ONE, c.operands, &ONE)
++                                if c.token_idx[current_position] - 1 > 0:
++                                    inv_count_opnd = ONEF / (c.token_idx[current_position] - 1)
++                                sscal(&c.vector_size, &inv_count_opnd, c.operands, &ONE)
++                                for j in range(current_position + 2, current_position + c.token_idx[current_position] + 1):
++                                    our_saxpy(&c.vector_size, &c.token_locks[c.token_idx[j] % c.token_locks_len], c.operands,
++                                              &ONE, &c.token_vectors[c.token_idx[j] * c.vector_size], &ONE)
++                            current_position = current_position + c.token_idx[current_position] + 1
++            token_idx = window_center
++    return result
+Index: setup.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/setup.py b/setup.py
+--- a/setup.py	(revision 2e5f3d2403da47e20af9947f3e5efa32abe581de)
++++ b/setup.py	(date 1697422711746)
+@@ -31,6 +31,7 @@
+ 
+ cpp_extensions = OrderedDict([
+     ('gensim.models.doc2vec_inner', 'gensim/models/doc2vec_inner.cpp'),
++    ('gensim.models.asm2vec_inner', 'gensim/models/asm2vec_inner.cpp'),
+     ('gensim.models.word2vec_corpusfile', 'gensim/models/word2vec_corpusfile.cpp'),
+     ('gensim.models.fasttext_corpusfile', 'gensim/models/fasttext_corpusfile.cpp'),
+     ('gensim.models.doc2vec_corpusfile', 'gensim/models/doc2vec_corpusfile.cpp'),
+Index: gensim/models/asm2vec_inner.pxd
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/gensim/models/asm2vec_inner.pxd b/gensim/models/asm2vec_inner.pxd
+new file mode 100644
+--- /dev/null	(date 1697537995616)
++++ b/gensim/models/asm2vec_inner.pxd	(date 1697537995616)
+@@ -0,0 +1,54 @@
++import numpy as np
++cimport numpy as np
++
++ctypedef np.float32_t REAL_t
++DEF MAX_DOCUMENT_LEN = 80000
++# DEF MAX_TOKENS_LEN = MAX_DOCUMENT_LEN * 6
++
++
++cdef struct Asm2VecConfig:
++    # int hs,
++    int negative, sample, learn_tag, learn_tokens, learn_hidden, train_tokens, cbow_mean
++    int window, null_token_index, workers, dv_count
++
++    REAL_t *token_vectors
++    REAL_t *token_locks
++    np.uint32_t token_locks_len
++
++    REAL_t *tag_vectors
++    REAL_t *tag_locks
++    np.uint32_t tag_locks_len
++
++    REAL_t *work
++    REAL_t *neu1
++    REAL_t *operands
++
++    REAL_t alpha
++    int layer1_size, vector_size
++
++    # np.uint32_t tag_index
++    # int codelens[MAX_DOCUMENT_LEN]
++    # np.uint32_t indexes[MAX_DOCUMENT_LEN]
++    # np.uint32_t window_indexes[MAX_DOCUMENT_LEN]
++
++    # For instructions
++    np.uint32_t token_idx[MAX_DOCUMENT_LEN]
++    np.uint32_t function_num
++    # np.uint32_t operators_idx[MAX_DOCUMENT_LEN]
++    # np.uint32_t operands_idx[MAX_TOKENS_LEN]
++    # np.uint32_t operands_len[MAX_DOCUMENT_LEN]
++    # np.uint32_t operands_offset[MAX_DOCUMENT_LEN]
++
++    # For hierarchical softmax
++    # REAL_t *syn1
++    # np.uint32_t *points[MAX_DOCUMENT_LEN]
++    # np.uint8_t *codes[MAX_DOCUMENT_LEN]
++
++    # For negative sampling
++    REAL_t *syn1neg
++    np.uint32_t *cum_table
++    unsigned long long cum_table_len, next_random
++
++cdef init_a2v_config(Asm2VecConfig *c, model, alpha, learn_tag, learn_tokens, learn_hidden, train_tokens= *, work= *,
++                     neu1= *, operands= *, token_vectors= *, token_locks= *, tag_vectors= *, tag_locks= *,
++                     dv_count= *)
+Index: gensim/models/asm2vec.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/gensim/models/asm2vec.py b/gensim/models/asm2vec.py
+new file mode 100644
+--- /dev/null	(date 1698246936282)
++++ b/gensim/models/asm2vec.py	(date 1698246936282)
+@@ -0,0 +1,734 @@
++import logging
++from collections import namedtuple, defaultdict
++from collections.abc import Iterable
++from timeit import default_timer
++from numpy import zeros, float32 as REAL, vstack, integer, dtype
++import numpy as np
++from gensim import utils, matutils  # utility fnc for pickling, common scipy operations etc
++from gensim.models.doc2vec import Doctag
++from gensim.models.word2vec import KeyedVectors, pseudorandom_weak_vector
++from six.moves import range
++from six import string_types, integer_types, itervalues
++from gensim.models import Word2Vec
++from typing import List
++from gensim.models.asm2vec_inner import train_document_dm_asm2vec
++logger = logging.getLogger('asm2vec')
++MAX_DOCUMENT_LEN = 80000
++
++class Function(namedtuple('Function', 'instructions tag')):
++    """Represents a Function with a tage, input format for :class:`~gensim.models.asm2vec.Asm2Vec`.
++
++    A single function, made up of `Instruction` (an operator and a list of operands) and `tag` (the function name).
++    Tag must be a string which represents the name of the function.
++
++    Replaces "sentence as a list of words" from :class:`gensim.models.word2vec.Word2Vec`.
++    """
++
++    def __str__(self):
++        """Human-readable representation of the object's state, used for debugging.
++
++        Returns
++        -------
++        str
++           Human-readable representation of the object's state (instructions and name).
++
++        """
++        return '%s(%s, %s)' % (self.__class__.__name__, self.instructions, self.tag)
++
++
++class Instruction(namedtuple('Instruction', 'operator operands')):
++    """Represents an instruction along with an operator and operands."""
++
++    def __str__(self):
++        """Human-readable representation of the object's state, used for debugging.
++
++        Returns
++        -------
++        str
++           Human-readable representation of the object's state (words and tag).
++
++        """
++        return '%s(%s, %s)' % (self.__class__.__name__, self.operator, self.operands)
++
++    def get_tokens(self):
++        return [self.operator] + self.operands
++
++
++class Asm2Vec(Word2Vec):
++    """Class for training, using and evaluating neural networks described in
++    `Asm2Vec: Boosting Static Representation Robustness for Binary Clone Search against Code Obfuscation and Compiler
++    Optimization <https://ieeexplore.ieee.org/document/8835340>`.
++
++    Some important internal attributes are the following:
++
++    Attributes
++    ----------
++    wv : :class:`~gensim.models.word2vec.KeyedVectors`
++        This object essentially contains the mapping between words and embeddings. After training, it can be used
++        directly to query those embeddings in various ways. See the module level docstring for examples.
++
++    dv : :class:`~gensim.models.word2vec.KeyedVectors`
++        This object contains the paragraph vectors learned from the training data. There will be one such vector
++        for each unique document tag supplied during training. They may be individually accessed using the tag
++        as an indexed-access key. For example, if one of the training documents used a tag of 'doc003':
++
++        .. sourcecode:: pycon
++
++            >>> model.dv['doc003']
++
++    """
++
++    def __init__(self, functions, window=1, alpha=0.025, min_alpha=0.0001, workers=8,
++                 embed_dim=100, epochs=10, negative=25, callbacks=(), min_count=10, batch_words=MAX_DOCUMENT_LEN,
++                 **kwargs):
++        """
++
++        Parameters
++        ----------
++        functions : iterable of list of :class:`~gensim.models.asm2vec.Function`, optional
++            Input corpus, simply a list of elements.
++        window : int, optional
++            The maximum distance between the current and predicted word within a sentence.
++        alpha : float, optional
++            The initial learning rate.
++        min_alpha : float, optional
++            Learning rate will linearly drop to `min_alpha` as training progresses.
++        workers : int, optional
++            Use these many worker threads to train the model (=faster training with multicore machines).
++        embed_dim : int, optional
++            Dimensionality of the feature vectors.
++        epochs : int, optional
++            Number of iterations (epochs) over the corpus.
++        negative : int, optional
++            If > 0, negative sampling will be used, the int for negative specifies how many "noise words"
++            should be drawn (usually between 5-20).
++            If set to 0, no negative sampling is used.
++        callbacks : :obj: `list` of :obj: `~gensim.models.callbacks.CallbackAny2Vec`, optional
++            List of callbacks that need to be executed/run at specific stages during training.
++        min_count : int, optional
++            Ignores all words with total frequency lower than this.
++
++        """
++        self.vector_size = embed_dim
++        self.dv = KeyedVectors(self.vector_size * 2, mapfile_path=None)
++        self.dv.vectors_lockf = np.ones(1, dtype=REAL)
++        self.layer1_size = embed_dim * 2
++        assert negative > 0, "As Asm2Vec utilize negative to train the model, you must provide a positive value for negative."
++        assert batch_words <= MAX_DOCUMENT_LEN, "Asm2Vec only support batch_words larger than MAX_DOCUMENT_LEN."
++        super(Asm2Vec, self).__init__(
++            sentences=functions,
++            corpus_file=None,
++            vector_size=self.vector_size,
++            sg=True,
++            alpha=alpha,
++            min_alpha=min_alpha,
++            workers=workers,
++            negative=negative,
++            callbacks=callbacks,
++            window=window,
++            cbow_mean=1,
++            epochs=epochs,
++            min_count=min_count,
++            null_word=1,
++            batch_words=batch_words,
++            **kwargs)
++
++    def _set_train_params(self, **kwargs):
++        pass
++
++    def _clear_post_train(self):
++        """Alias for :meth:`~gensim.models.asm2vec.Asm2Vec.clear_sims`."""
++        self.wv.norms = None
++        self.dv.norms = None
++
++    def init_weights(self):
++        super().init_weights()
++        self.dv.resize_vectors(seed=self.seed + 114514)
++
++    def reset_from(self, other_model):
++        """Copy shareable data structures from another (possibly pre-trained) model.
++
++        Parameters
++        ----------
++        other_model : :class:`~gensim.models.asm2vec.Asm2Vec`
++            Other model whose internal data structures will be copied over to the current object.
++
++        """
++        self.wv.key_to_index = other_model.wv.key_to_index
++        self.wv.index_to_key = other_model.wv.index_to_key
++        self.wv.expandos = other_model.wv.expandos
++        self.cum_table = other_model.cum_table
++        self.corpus_count = other_model.corpus_count
++        self.dv.key_to_index = other_model.dv.key_to_index
++        self.dv.index_to_key = other_model.dv.index_to_key
++        self.dv.expandos = other_model.dv.expandos
++        self.init_weights()
++
++    def _do_train_epoch(
++            self, corpus_file, thread_id, offset, cython_vocab, thread_private_mem, cur_epoch,
++            total_examples=None, total_words=None, offsets=None, start_doctags=None, **kwargs
++    ):
++        raise NotImplementedError("Training directly on corpus files is currently not implemented for Asm2Vec.")
++
++    def _get_thread_working_mem(self):
++        """Computes the memory used per worker thread.
++
++            Returns
++            -------
++            (np.ndarray, np.ndarray, np.ndarray)
++                Each worker threads private work memory.
++        """
++        work = matutils.zeros_aligned(self.layer1_size, dtype=REAL)  # per-thread private work memory
++        neu1 = matutils.zeros_aligned(self.layer1_size, dtype=REAL)
++        operands = matutils.zeros_aligned(self.wv.vector_size, dtype=REAL)
++
++        return work, neu1, operands
++
++    def _do_train_job(self, functions: Iterable[Function], alpha: int, inits):
++        """
++
++        Parameters
++        ----------
++        functions : iterable of list of :class:`~gensim.models.asm2vec.Function`
++            The corpus chunk to be used for training this batch.
++        alpha : float
++            Learning rate to be used for training this batch.
++        inits : (np.ndarray, np.ndarray, np.ndarray)
++            Each worker threads private work memory.
++
++        Returns
++        -------
++        (int, int)
++             2-tuple (effective word count after ignoring unknown words and sentence length trimming, total word count).
++
++        """
++        work, neu1, operands = inits
++        tally = 0
++        function_tag_vectors = self.dv.vectors
++        function_tag_lockf = self.dv.vectors_lockf
++        tally += train_document_dm_asm2vec(
++            self, functions, alpha, work, neu1, operands,
++            learn_tags=True, learn_tokens=True,
++            tag_vectors=function_tag_vectors, tag_locks=function_tag_lockf
++        )
++        return tally, self._raw_word_count(functions)
++
++    def train(self, corpus_iterable=None, corpus_file=None, total_examples=None, total_words=None,
++              epochs=None, start_alpha=None, end_alpha=None,
++              word_count=0, queue_factor=2, report_delay=1.0, compute_loss=False, callbacks=(), **kwargs):
++        """Update the model's neural weights.
++
++        To support linear learning-rate decay from (initial) `alpha` to `min_alpha`, and accurate
++        progress-percentage logging, either `total_examples` (count of documents) or `total_words` (count of
++        raw words in documents) **MUST** be provided. If `documents` is the same corpus
++        that was provided to :meth:`~gensim.models.word2vec.Word2Vec.build_vocab` earlier,
++        you can simply use `total_examples=self.corpus_count`.
++
++        To avoid common mistakes around the model's ability to do multiple training passes itself, an
++        explicit `epochs` argument **MUST** be provided. In the common and recommended case
++        where :meth:`~gensim.models.word2vec.Word2Vec.train` is only called once,
++        you can set `epochs=self.iter`.
++
++        Parameters
++        ----------
++        corpus_iterable : iterable of list of :class:`~gensim.models.asm2vec.Function`, optional
++            Can be simply a list of elements, but for larger corpora,consider an iterable that streams
++            the documents directly from disk/network. If you don't supply `documents` (or `corpus_file`), the model is
++            left uninitialized -- use if you plan to initialize it in some other way.
++        corpus_file : str, optional
++            Path to a corpus file in :class:`~gensim.models.word2vec.LineSentence` format.
++            You may use this argument instead of `documents` to get performance boost. Only one of `documents` or
++            `corpus_file` arguments need to be passed (not both of them). Documents' tags are assigned automatically
++            and are equal to line number, as in :class:`~gensim.models.doc2vec.TaggedLineDocument`.
++        total_examples : int, optional
++            Count of documents.
++        total_words : int, optional
++            Count of raw words in documents.
++        epochs : int, optional
++            Number of iterations (epochs) over the corpus.
++        start_alpha : float, optional
++            Initial learning rate. If supplied, replaces the starting `alpha` from the constructor,
++            for this one call to `train`.
++            Use only if making multiple calls to `train`, when you want to manage the alpha learning-rate yourself
++            (not recommended).
++        end_alpha : float, optional
++            Final learning rate. Drops linearly from `start_alpha`.
++            If supplied, this replaces the final `min_alpha` from the constructor, for this one call to
++            :meth:`~gensim.models.asm2vec.Asm2Vec.train`.
++            Use only if making multiple calls to :meth:`~gensim.models.asm2vec.Asm2Vec.train`, when you want to manage
++            the alpha learning-rate yourself (not recommended).
++        word_count : int, optional
++            Count of words already trained. Set this to 0 for the usual
++            case of training on all words in documents.
++        queue_factor : int, optional
++            Multiplier for size of queue (number of workers * queue_factor).
++        report_delay : float, optional
++            Seconds to wait before reporting progress.
++        callbacks : :obj: `list` of :obj: `~gensim.models.callbacks.CallbackAny2Vec`, optional
++            List of callbacks that need to be executed/run at specific stages during training.
++
++        """
++        kwargs = {}
++
++        if corpus_file is not None:
++            raise TypeError("corpus_file must be none in Asm2vec.")
++
++        if corpus_iterable is None:
++            raise TypeError("corpus_iterable value must be provided")
++
++        super(Asm2Vec, self).train(
++            corpus_iterable=corpus_iterable, corpus_file=None, total_examples=total_examples, total_words=total_words,
++            epochs=epochs, start_alpha=start_alpha, end_alpha=end_alpha, word_count=word_count,
++            queue_factor=queue_factor, report_delay=report_delay, callbacks=callbacks, **kwargs)
++
++    def _raw_word_count(self, job: Iterable[Function]):
++        """Get the number of words in a given job.
++
++        Parameters
++        ----------
++        job : iterable of list of :class:`~gensim.models.asm2vec.Function`
++            Corpus chunk.
++
++        Returns
++        -------
++        int
++            Number of raw words in the corpus chunk.
++
++        """
++        result = 0
++        for function in job:
++            result += len(function.instructions)*2+1+1+sum([len(ins.operands) for ins in function.instructions])
++        return result
++
++    def estimated_lookup_memory(self):
++        """Get estimated memory for tag lookup, 0 if using pure int tags.
++
++        Returns
++        -------
++        int
++            The estimated RAM required to look up a tag in bytes.
++
++        """
++        return 60 * len(self.dv) + 140 * len(self.dv)
++
++    def infer_vector(self, functions: List[Function], alpha=None, min_alpha=None, epochs=None):
++        """Infer a vector for given post-bulk training function.
++
++        Notes
++        -----
++        Subsequent calls to this function may infer different representations for the same document.
++        For a more stable representation, increase the number of steps to assert a stricket convergence.
++
++        Parameters
++        ----------
++        functions : list of Function
++            A document for which the vector representation will be inferred.
++        alpha : float, optional
++            The initial learning rate. If unspecified, value from model initialization will be reused.
++        min_alpha : float, optional
++            Learning rate will linearly drop to `min_alpha` over all inference epochs. If unspecified,
++            value from model initialization will be reused.
++        epochs : int, optional
++            Number of times to train the new document. Larger values take more time, but may improve
++            quality and run-to-run stability of inferred vectors. If unspecified, the `epochs` value
++            from model initialization will be reused.
++
++        Returns
++        -------
++        np.ndarray
++            The inferred paragraph vector for the new document.
++
++        """
++        for function in functions:
++            if not isinstance(function, Function):
++                raise TypeError("Each function must be a list of Function objects.")
++
++        alpha = alpha or self.alpha
++        min_alpha = min_alpha or self.min_alpha
++
++        unique_name = set([function.tag for function in functions])
++        unique_tag_num = len(unique_name)
++        name2idx = {name: idx for idx, name in enumerate(unique_name)}
++
++        # I don't know why, but the following line will cause a bug.
++        # When I use the following line to initialize the doctag_vectors, the test process will exit with code 139. -_-
++        # doctag_vectors = pseudorandom_weak_vector(self.dv.vector_size * unique_tag_num,
++        #                                           seed_string=''.join(list(unique_name)))
++        # doctag_vectors = doctag_vectors.reshape(unique_tag_num, self.dv.vector_size)
++        doctag_vectors = (utils.default_prng.random((unique_tag_num, self.dv.vector_size),dtype=REAL) - 0.5) / self.dv.vector_size
++
++        doctags_lockf = np.ones(1, dtype=REAL)
++        work, neu1, operands = self._get_thread_working_mem()
++        alpha_delta = (alpha - min_alpha) / max(epochs - 1, 1)
++        functions_to_infer = []
++        functions_length = 0
++        for i in range(epochs):
++            for function in functions:
++                function_length = self._raw_word_count([function])
++                if functions_length + function_length <= self.batch_words:
++                    functions_to_infer.append(function)
++                    functions_length += function_length
++                else:
++                    train_document_dm_asm2vec(
++                        self, functions_to_infer, alpha, work, neu1=neu1, operands=operands,
++                        learn_tokens=False, learn_hidden=False,
++                        learn_tags=True,
++                        tag_vectors=doctag_vectors,
++                        tag_locks=doctags_lockf,
++                        tag2idx=name2idx
++                    )
++                    functions_to_infer = [function]
++                    functions_length = function_length
++            alpha -= alpha_delta
++        train_document_dm_asm2vec(
++            self, functions_to_infer, alpha, work,
++            learn_tokens=False, learn_hidden=False,
++            learn_tags=True,
++            tag_vectors=doctag_vectors,
++            tag_locks=doctags_lockf,
++            tag2idx=name2idx
++        )
++        return name2idx, doctag_vectors
++
++    def __getitem__(self, tag):
++        """Get the vector representation of (possible multi-term) tag.
++
++        Parameters
++        ----------
++        tag : {str, int, list of str, list of int}
++            The tag (or tags) to be looked up in the model.
++
++        Returns
++        -------
++        np.ndarray
++            The vector representations of each tag as a matrix (will be 1D if `tag` was a single tag)
++
++        """
++        if isinstance(tag, string_types + integer_types + (integer,)):
++            if tag not in self.wv:
++                return self.dv[tag]
++            return self.wv[tag]
++        return vstack([self[i] for i in tag])
++
++    def __str__(self):
++        """Abbreviated name reflecting major configuration parameters.
++
++        Returns
++        -------
++        str
++            Human readable representation of the models internal state.
++
++        """
++        segments = []
++
++        if self.sg:
++            segments.append('dbow')
++
++        segments.append('d%d' % self.dv.vector_size)  # dimensions
++        if self.negative:
++            segments.append('n%d' % self.negative)  # negative samples
++
++        segments.append('w%d' % self.window)  # window size, when relevant
++        if self.min_count > 1:
++            segments.append('mc%d' % self.min_count)
++        if self.sample > 0:
++            segments.append('s%g' % self.sample)
++        if self.workers > 1:
++            segments.append('t%d' % self.workers)
++        return '%s(%s)' % (self.__class__.__name__, ','.join(segments))
++
++    def save_word2vec_format(self, fname, doctag_vec=False, word_vec=True, prefix='*dt_', fvocab=None, binary=False):
++        """Store the input-hidden weight matrix in the same format used by the original C word2vec-tool.
++
++        Parameters
++        ----------
++        fname : str
++            The file path used to save the vectors in.
++        doctag_vec : bool, optional
++            Indicates whether to store document vectors.
++        word_vec : bool, optional
++            Indicates whether to store word vectors.
++        prefix : str, optional
++            Uniquely identifies doctags from word vocab, and avoids collision in case of repeated string in doctag
++            and word vocab.
++        fvocab : str, optional
++            Optional file path used to save the vocabulary.
++        binary : bool, optional
++            If True, the data will be saved in binary word2vec format, otherwise - will be saved in plain text.
++
++        """
++        total_vec = None
++        # save word vectors
++        if word_vec:
++            if doctag_vec:
++                total_vec = len(self.wv) + len(self.dv)
++            self.wv.save_word2vec_format(fname, fvocab, binary, total_vec)
++        # save document vectors
++        if doctag_vec:
++            write_header = True
++            append = False
++            if word_vec:
++                # simply appending to existing file
++                write_header = False
++                append = True
++            self.dv.save_word2vec_format(
++                fname, prefix=prefix, fvocab=fvocab, binary=binary,
++                write_header=write_header, append=append,
++                sort_attr='doc_count')
++
++    def init_sims(self, replace=False):
++        """Pre-compute L2-normalized vectors.
++
++        Parameters
++        ----------
++        replace : bool
++            If True - forget the original vectors and only keep the normalized ones to saved RAM (also you can't
++            continue training if call it with `replace=True`).
++
++        """
++        self.dv.init_sims(replace=replace)
++
++    @classmethod
++    def load(cls, *args, **kwargs):
++        """Load a previously saved :class:`~gensim.models.asm2vec.Asm2Vec` model.
++
++        Parameters
++        ----------
++        fname : str
++            Path to the saved file.
++        *args : object
++            Additional arguments, see `~gensim.models.base_any2vec.BaseWordEmbeddingsModel.load`.
++        **kwargs : object
++            Additional arguments, see `~gensim.models.base_any2vec.BaseWordEmbeddingsModel.load`.
++
++        See Also
++        --------
++        :meth:`~gensim.models.asm2vec.Asm2Vec.save`
++            Save :class:`~gensim.models.asm2vec.Asm2Vec` model.
++
++        Returns
++        -------
++        :class:`~gensim.models.asm2vec.Asm2Vec`
++            Loaded model.
++
++        """
++        try:
++            return super(Asm2Vec, cls).load(*args, rethrow=True, **kwargs)
++        except AttributeError as ae:
++            logger.error(
++                "Model load error. Was model saved using code from an older Gensim version? "
++                "Try loading older model using gensim-3.8.3, then re-saving, to restore "
++                "compatibility with current code.")
++            raise ae
++
++    def estimate_memory(self, vocab_size=None, report=None):
++        """Estimate required memory for a model using current settings.
++
++        Parameters
++        ----------
++        vocab_size : int, optional
++            Number of raw words in the vocabulary.
++        report : dict of (str, int), optional
++            A dictionary from string representations of the **specific** model's memory consuming members
++            to their size in bytes.
++
++        Returns
++        -------
++        dict of (str, int), optional
++            A dictionary from string representations of the model's memory consuming members to their size in bytes.
++            Includes members from the base classes as well as weights and tag lookup memory estimation specific to the
++            class.
++
++        """
++        report = report or {}
++        report['doctag_lookup'] = self.estimated_lookup_memory()
++        report['doctag_syn0'] = len(self.dv) * self.vector_size * dtype(REAL).itemsize
++        return super(Asm2Vec, self).estimate_memory(vocab_size, report=report)
++
++    def build_vocab(self, corpus_iterable=None, corpus_file=None, update=False, progress_per=10000,
++                    keep_raw_vocab=False,
++                    trim_rule=None, **kwargs):
++        """Build vocabulary from a sequence of documents (can be a once-only generator stream).
++
++        Parameters
++        ----------
++        corpus_iterable : iterable of list of :class:`~gensim.models.asm2vec.Function`.
++        corpus_file : str, optional
++            This argument is not used in Asm2Vec. But for compatibility with Word2Vec, it is kept.
++        update : bool
++            If true, the new words in `documents` will be added to model's vocab.
++        progress_per : int
++            Indicates how many words to process before showing/updating the progress.
++        keep_raw_vocab : bool
++            If not true, delete the raw vocabulary after the scaling is done and free up RAM.
++        trim_rule : function, optional
++            Vocabulary trimming rule, specifies whether certain words should remain in the vocabulary,
++            be trimmed away, or handled using the default (discard if word count < min_count).
++            Can be None (min_count will be used, look to :func:`~gensim.utils.keep_vocab_item`),
++            or a callable that accepts parameters (word, count, min_count) and returns either
++            :attr:`gensim.utils.RULE_DISCARD`, :attr:`gensim.utils.RULE_KEEP` or :attr:`gensim.utils.RULE_DEFAULT`.
++            The rule, if given, is only used to prune vocabulary during current method call and is not stored as part
++            of the model.
++
++            The input parameters are of the following types:
++                * `word` (str) - the word we are examining
++                * `count` (int) - the word's frequency count in the corpus
++                * `min_count` (int) - the minimum count threshold.
++
++        **kwargs
++            Additional key word arguments passed to the internal vocabulary construction.
++
++        """
++        total_words, corpus_count = self.scan_vocab(
++            corpus_iterable=corpus_iterable, corpus_file=corpus_file,
++            progress_per=progress_per, trim_rule=trim_rule
++        )
++        self.corpus_count = corpus_count
++        self.corpus_total_words = total_words
++        report_values = self.prepare_vocab(update=update, keep_raw_vocab=keep_raw_vocab,
++                                           trim_rule=trim_rule, **kwargs)
++
++        report_values['memory'] = self.estimate_memory(vocab_size=report_values['num_retained_words'])
++        self.prepare_weights(update=update)
++
++    def build_vocab_from_freq(self, word_freq, keep_raw_vocab=False, corpus_count=None, trim_rule=None, update=False):
++        """Build vocabulary from a dictionary of word frequencies.
++
++        Build model vocabulary from a passed dictionary that contains a (word -> word count) mapping.
++        Words must be of type unicode strings.
++
++        Parameters
++        ----------
++        word_freq : dict of (str, int)
++            Word <-> count mapping.
++        keep_raw_vocab : bool, optional
++            If not true, delete the raw vocabulary after the scaling is done and free up RAM.
++        corpus_count : int, optional
++            Even if no corpus is provided, this argument can set corpus_count explicitly.
++        trim_rule : function, optional
++            Vocabulary trimming rule, specifies whether certain words should remain in the vocabulary,
++            be trimmed away, or handled using the default (discard if word count < min_count).
++            Can be None (min_count will be used, look to :func:`~gensim.utils.keep_vocab_item`),
++            or a callable that accepts parameters (word, count, min_count) and returns either
++            :attr:`gensim.utils.RULE_DISCARD`, :attr:`gensim.utils.RULE_KEEP` or :attr:`gensim.utils.RULE_DEFAULT`.
++            The rule, if given, is only used to prune vocabulary during
++            :meth:`~gensim.models.asm2vec.Asm2Vec.build_vocab` and is not stored as part of the model.
++
++            The input parameters are of the following types:
++                * `word` (str) - the word we are examining
++                * `count` (int) - the word's frequency count in the corpus
++                * `min_count` (int) - the minimum count threshold.
++
++        update : bool, optional
++            If true, the new provided words in `word_freq` dict will be added to model's vocab.
++
++        """
++        logger.info("Processing provided word frequencies")
++        # Instead of scanning text, this will assign provided word frequencies dictionary(word_freq)
++        # to be directly the raw vocab
++        raw_vocab = word_freq
++        logger.info(
++            "collected %i different raw word, with total frequency of %i",
++            len(raw_vocab), sum(itervalues(raw_vocab))
++        )
++
++        # Since no documents are provided, this is to control the corpus_count
++        self.corpus_count = corpus_count or 0
++        self.raw_vocab = raw_vocab
++
++        # trim by min_count & precalculate downsampling
++        report_values = self.prepare_vocab(keep_raw_vocab=keep_raw_vocab,
++                                           trim_rule=trim_rule, update=update)
++        report_values['memory'] = self.estimate_memory(vocab_size=report_values['num_retained_words'])
++        self.prepare_weights(update=update)
++
++    def _scan_vocab(self, corpus_iterable: Iterable[Function], progress_per, trim_rule):
++        function_no = -1
++        total_tokens = 0
++        min_reduce = 1
++        interval_start = default_timer() - 0.00001  # guard against next sample being identical
++        interval_count = 0
++        checked_string_types = 0
++        vocab = defaultdict(int)
++        max_rawint = -1  # highest raw int tag seen (-1 for none)
++        doctags_lookup = {}
++        doctags_list = []
++        for function_no, function in enumerate(corpus_iterable):
++            if not checked_string_types:
++                if isinstance(function.instructions, str):
++                    logger.warning(
++                        "Each 'words' should be a list of words (usually unicode strings). "
++                        "First 'words' here is instead plain %s.",
++                        type(function.instructions),
++                    )
++                checked_string_types += 1
++            if function_no % progress_per == 0:
++                interval_rate = (total_tokens - interval_count) / (default_timer() - interval_start)
++                logger.info(
++                    "PROGRESS: at example #%i, processed %i words (%i words/s), %i word types, %i tags",
++                    function_no, total_tokens, interval_rate, len(vocab), len(doctags_list)
++                )
++                interval_start = default_timer()
++                interval_count = total_tokens
++            document_length = len(function.instructions)
++
++            tag = function.tag
++            # Note a function tag during initial corpus scan, for structure sizing.
++            if isinstance(tag, (int, integer,)):
++                max_rawint = max(max_rawint, tag)
++            else:
++                if tag in doctags_lookup:
++                    doctags_lookup[tag].doc_count += 1
++                    doctags_lookup[tag].word_count += document_length
++                else:
++                    doctags_lookup[tag] = Doctag(index=len(doctags_list), word_count=document_length, doc_count=1)
++                    doctags_list.append(tag)
++
++            for instruction in function.instructions:
++                for token in instruction.get_tokens():
++                    vocab[token] += 1
++            total_tokens += self._raw_word_count([function])
++
++            if self.max_vocab_size and len(vocab) > self.max_vocab_size:
++                utils.prune_vocab(vocab, min_reduce, trim_rule=trim_rule)
++                min_reduce += 1
++
++        corpus_count = function_no + 1
++        if len(doctags_list) > corpus_count:
++            logger.warning("More unique tags (%i) than documents (%i).", len(doctags_list), corpus_count)
++        if max_rawint > corpus_count:
++            logger.warning(
++                "Highest int doctag (%i) larger than count of documents (%i). This means "
++                "at least %i excess, unused slots (%i bytes) will be allocated for vectors.",
++                max_rawint, corpus_count, max_rawint - corpus_count,
++                                          (max_rawint - corpus_count) * self.vector_size * dtype(REAL).itemsize,
++            )
++        if max_rawint > -1:
++            # adjust indexes/list to account for range of pure-int keyed doctags
++            for key in doctags_list:
++                doctags_lookup[key].index = doctags_lookup[key].index + max_rawint + 1
++            doctags_list = list(range(0, max_rawint + 1)) + doctags_list
++
++        self.dv.index_to_key = doctags_list
++        for t, dt in doctags_lookup.items():
++            self.dv.key_to_index[t] = dt.index
++            self.dv.set_vecattr(t, 'word_count', dt.word_count)
++            self.dv.set_vecattr(t, 'doc_count', dt.doc_count)
++        self.raw_vocab = vocab
++        return total_tokens, corpus_count
++
++    def scan_vocab(self, corpus_iterable: Iterable[Function] = None,
++                   corpus_file=None,
++                   progress_per=100000,
++                   workers=None,
++                   trim_rule=None):
++
++        logger.info("collecting all words and their counts")
++        total_instructions, corpus_count = self._scan_vocab(corpus_iterable, progress_per, trim_rule)
++
++        logger.info(
++            "collected %i word types and %i unique tags from a corpus of %i examples and %i instructions",
++            len(self.raw_vocab), len(self.dv), corpus_count, total_instructions,
++        )
++
++        return total_instructions, corpus_count

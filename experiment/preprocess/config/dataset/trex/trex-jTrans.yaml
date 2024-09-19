@@ -1,0 +1,18 @@
+pool-size: 1000
+number: 10
+seed: 8888
+software:
+  - openssl
+  - zlib
+  - diffutils
+options:
+  #      x86-x64
+  x64-O0-O3:
+    - '0:x64:linux:ukn-ukn:O0'
+    - '0:x64:linux:ukn-ukn:O3'
+  x64-O1-O3:
+    - '0:x64:linux:ukn-ukn:O1'
+    - '0:x64:linux:ukn-ukn:O3'
+  x64-O2-O3:
+    - '0:x64:linux:ukn-ukn:O2'
+    - '0:x64:linux:ukn-ukn:O3'

@@ -1,0 +1,53 @@
+dataset:
+  path: '/home/anonymous/Documents/binsim-dataset/processed/trex/'
+  name: default
+  merge: default
+
+models:
+#  alpha-diff:
+#    type: "AlphaDiff"
+#    cfg_type: "ByteCode"
+#    record_dir: "./record/alpha-diff"
+#    batch_size: 1000
+#  Gemini:
+#    type: "Gemini"
+#    cfg_type: "ACFG"
+#    record_dir: "./record/gemini"
+#    batch_size: 1000jTr
+#  GraphEmbed:
+#    type: "i2v_rnn"
+#    cfg_type: "InsStrCFG"
+#    record_dir: "./record/i2v-rnn"
+#    batch_size: 1000
+#    data_extra_kwargs:
+#      ins2vec: "/home/anonymous/Documents/binsim-corpus/processed/trex/data/TokenCFG/default/model/InsStrSeq/ins2vec/all-in-one.wv"
+#      max_seq_length: 150
+#  SAFE:
+#    type: "SAFE"
+#    cfg_type: "InsStrSeq"
+#    record_dir: "./record/safe"
+#    batch_size: 1000
+#    data_extra_kwargs:
+#      ins2vec: "/home/anonymous/Documents/binsim-corpus/processed/trex/data/TokenCFG/default/model/InsStrSeq/ins2vec/all-in-one.wv"
+#  RCFG2Vec:
+#    type: "RCFG2Vec"
+#    cfg_type: "InsDAG"
+#    record_dir: "./record/rcfg2vec-lite"
+#    batch_size: 1000
+#    data_extra_kwargs:
+#      expand-time: 0
+#      max_seq_length: 300
+#  Asteria:
+#    type: "Asteria"
+#    cfg_type: "CodeAST"
+#    record_dir: "./record/Asteria"
+#    batch_size: 1000
+  jTrans:
+    type: "jTrans"
+    cfg_type: "JTransSeq"
+    record_dir: "/home/anonymous/Documents/binsim/data/JTrans-pretrained-model/jTrans-finetune"
+    batch_size: 300
+
+
+
+

@@ -1,0 +1,129 @@
+pool-size: 1000
+number: 10
+seed: 8888
+software:
+  - openssl
+  - zlib
+  - diffutils
+options:
+  #      cross-optimization
+  #      ARM32
+  arm32-O0-O3:
+    - '0:arm32:linux:ukn-ukn:O0'
+    - '0:arm32:linux:ukn-ukn:O3'
+  arm32-O1-O3:
+    - '0:arm32:linux:ukn-ukn:O1'
+    - '0:arm32:linux:ukn-ukn:O3'
+  arm32-O2-O3:
+    - '0:arm32:linux:ukn-ukn:O2'
+    - '0:arm32:linux:ukn-ukn:O3'
+  #      MIPS32
+  mips32-O0-O3:
+    - '0:mips32:linux:ukn-ukn:O0'
+    - '0:mips32:linux:ukn-ukn:O3'
+  mips32-O1-O3:
+    - '0:mips32:linux:ukn-ukn:O1'
+    - '0:mips32:linux:ukn-ukn:O3'
+  mips32-O2-O3:
+    - '0:mips32:linux:ukn-ukn:O2'
+    - '0:mips32:linux:ukn-ukn:O3'
+  #      X86
+  x86-O0-O3:
+    - '0:x86:linux:ukn-ukn:O0'
+    - '0:x86:linux:ukn-ukn:O3'
+  x86-O1-O3:
+    - '0:x86:linux:ukn-ukn:O1'
+    - '0:x86:linux:ukn-ukn:O3'
+  x86-O2-O3:
+    - '0:x86:linux:ukn-ukn:O2'
+    - '0:x86:linux:ukn-ukn:O3'
+  #      X64
+  x64-O0-O3:
+    - '0:x64:linux:ukn-ukn:O0'
+    - '0:x64:linux:ukn-ukn:O3'
+  x64-O1-O3:
+    - '0:x64:linux:ukn-ukn:O1'
+    - '0:x64:linux:ukn-ukn:O3'
+  x64-O2-O3:
+    - '0:x64:linux:ukn-ukn:O2'
+    - '0:x64:linux:ukn-ukn:O3'
+
+  #      cross-architecture
+  #      arm32-mips32
+  arm32-mips32-O0:
+    - '0:arm32:linux:ukn-ukn:O0'
+    - '0:mips32:linux:ukn-ukn:O0'
+  arm32-mips32-O1:
+    - '0:arm32:linux:ukn-ukn:O1'
+    - '0:mips32:linux:ukn-ukn:O1'
+  arm32-mips32-O2:
+    - '0:arm32:linux:ukn-ukn:O2'
+    - '0:mips32:linux:ukn-ukn:O2'
+  arm32-mips32-O3:
+    - '0:arm32:linux:ukn-ukn:O3'
+    - '0:mips32:linux:ukn-ukn:O3'
+  #      arm32-x86
+  arm32-x86-O0:
+    - '0:arm32:linux:ukn-ukn:O0'
+    - '0:x86:linux:ukn-ukn:O0'
+  arm32-x86-O1:
+    - '0:arm32:linux:ukn-ukn:O1'
+    - '0:x86:linux:ukn-ukn:O1'
+  arm32-x86-O2:
+    - '0:arm32:linux:ukn-ukn:O2'
+    - '0:x86:linux:ukn-ukn:O2'
+  arm32-x86-O3:
+    - '0:arm32:linux:ukn-ukn:O3'
+    - '0:x86:linux:ukn-ukn:O3'
+  #      arm32-x64
+  arm32-x64-O0:
+    - '0:arm32:linux:ukn-ukn:O0'
+    - '0:x64:linux:ukn-ukn:O0'
+  arm32-x64-O1:
+    - '0:arm32:linux:ukn-ukn:O1'
+    - '0:x64:linux:ukn-ukn:O1'
+  arm32-x64-O2:
+    - '0:arm32:linux:ukn-ukn:O2'
+    - '0:x64:linux:ukn-ukn:O2'
+  arm32-x64-O3:
+    - '0:arm32:linux:ukn-ukn:O3'
+    - '0:x64:linux:ukn-ukn:O3'
+  #      mips32-x86
+  mips32-x86-O0:
+    - '0:mips32:linux:ukn-ukn:O0'
+    - '0:x86:linux:ukn-ukn:O0'
+  mips32-x86-O1:
+    - '0:mips32:linux:ukn-ukn:O1'
+    - '0:x86:linux:ukn-ukn:O1'
+  mips32-x86-O2:
+    - '0:mips32:linux:ukn-ukn:O2'
+    - '0:x86:linux:ukn-ukn:O2'
+  mips32-x86-O3:
+    - '0:mips32:linux:ukn-ukn:O3'
+    - '0:x86:linux:ukn-ukn:O3'
+  #      mips32-x64
+  mips32-x64-O0:
+    - '0:mips32:linux:ukn-ukn:O0'
+    - '0:x64:linux:ukn-ukn:O0'
+  mips32-x64-O1:
+    - '0:mips32:linux:ukn-ukn:O1'
+    - '0:x64:linux:ukn-ukn:O1'
+  mips32-x64-O2:
+    - '0:mips32:linux:ukn-ukn:O2'
+    - '0:x64:linux:ukn-ukn:O2'
+  mips32-x64-O3:
+    - '0:mips32:linux:ukn-ukn:O3'
+    - '0:x64:linux:ukn-ukn:O3'
+  #      x86-x64
+  x86-x64-O0:
+    - '0:x86:linux:ukn-ukn:O0'
+    - '0:x64:linux:ukn-ukn:O0'
+  x86-x64-O1:
+    - '0:x86:linux:ukn-ukn:O1'
+    - '0:x64:linux:ukn-ukn:O1'
+  x86-x64-O2:
+    - '0:x86:linux:ukn-ukn:O2'
+    - '0:x64:linux:ukn-ukn:O2'
+  x86-x64-O3:
+    - '0:x86:linux:ukn-ukn:O3'
+    - '0:x64:linux:ukn-ukn:O3'

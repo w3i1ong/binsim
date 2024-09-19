@@ -1,0 +1,6 @@
+results:
+  alpha-diff: "./record/alpha-diff"
+  Gemini: "./record/gemini"
+  SAFE: "./record/safe"
+  GraphEmbed: "./record/i2v-rnn"
+  RCFG2Vec: "./record/rcfg2vec-100"

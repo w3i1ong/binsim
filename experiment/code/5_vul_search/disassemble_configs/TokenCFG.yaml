@@ -1,0 +1,31 @@
+dataset:
+  name: default
+  type: TokenCFG
+  binary: /home/anonymous/Documents/dataset/vulnerabilities/build
+  dataset: /home/anonymous/Documents/binsim-dataset/processed/Vul
+  kwargs:
+    imm_threshold: 1024
+    offset_threshold: 1024
+    ins2vec: "/home/anonymous/Documents/binsim-corpus/processed/trex/data/TokenCFG/default/model/InsStrSeq/ins2vec/all-in-one.wv"
+
+disassemble:
+  workers: 10
+  verbose: True
+  keep-thunk: False
+  keep-large: False
+  large-ins-threshold: 1000000
+  large-graph-threshold: 700
+  keep-small: False
+  small-ins-threshold: 10
+  small-graph-threshold: 3
+  reanalysis: True
+  regenerate: True
+  arch:
+    - x64
+    - arm32
+    - x86
+    - mips32
+
+log:
+  level: "info"
+  console: True

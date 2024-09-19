@@ -1,0 +1,76 @@
+name: rcfg2vec
+
+common:
+  record-dir: "./record/rcfg2vec-50-30-1layer-bidirectional"
+  log:
+    level: "info"
+    file: True
+
+model:
+  type: "RCFG2Vec"
+  kwargs:
+    in-dim: 50
+    embed-dim: 30
+    dag-gru-bidirectional: True
+    gru-bidirectional: True
+    layer_num: 1
+
+dataset:
+  type: 'InsDAG'
+  path: '/home/anonymous/Documents/binsim-dataset/processed/trex/'
+  merge: 'default'
+  name: 'default'
+  kwargs:
+    expand-time: 0
+    max_seq_length: 300
+
+
+train:
+  general:
+    epoch: 50
+    backward-steps: 1
+    gpu: 1
+    mixed-precision: False
+    num-workers: 10
+    batch-size: 250
+    choice-metric: 'nDCG@10'
+
+  sampler:
+    type: info-nce-samples
+    kwargs:
+
+  optimizer:
+    type: 'adam'
+    lr: 0.001
+    kwargs:
+    lr-update-epoch: 2
+    lr-update-scale: 0.5
+
+
+  evaluation:
+    val-interval: 5
+    batch-size:
+      classification: 128
+      search: 750
+    metrics:
+      - 'recall@1'
+      - 'mrr@10'
+      - 'recall@10'
+      - 'nDCG@10'
+
+test:
+  model:
+    model-source: 'recorded'
+  general:
+    gpu: 2
+    mixed-precision: False
+    num-workers: 10
+    batch-size:
+      classification: 256
+      search: 750
+  evaluation:
+    metrics:
+      - 'recall@1'
+      - 'mrr@10'
+      - 'recall@10'
+      - 'nDCG@10'

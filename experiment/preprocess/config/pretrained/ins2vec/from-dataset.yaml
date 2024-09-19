@@ -1,0 +1,13 @@
+dataset:
+  dataset: /home/anonymous/Documents/binsim-dataset/processed/trex
+  corpus: /home/anonymous/Documents/binsim-corpus/processed/trex
+  name: default
+  merge_name: default
+  label: 'test'
+  type: TokenCFG
+
+model:
+  name: 'ins2vec'
+  train-per-arch: False
+  model_kwargs:
+    embed_dim: 100

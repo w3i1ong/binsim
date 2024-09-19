@@ -1,0 +1,29 @@
+dataset:
+  name: default
+  type: InsCFG
+  binary: /home/anonymous/Documents/dataset/vulnerabilities/build
+  dataset: /home/anonymous/Documents/binsim-dataset/processed/Vul
+  kwargs:
+    token2idx: /home/anonymous/Documents/binsim-dataset/processed/trex/data/InsCFG/default/default/token2idx.pkl
+
+disassemble:
+  workers: 10
+  verbose: True
+  keep-thunk: False
+  keep-large: False
+  large-ins-threshold: 1000000
+  large-graph-threshold: 700
+  keep-small: False
+  small-ins-threshold: 10
+  small-graph-threshold: 3
+  reanalysis: True
+  regenerate: True
+  arch:
+    - x64
+    - arm32
+    - x86
+    - mips32
+
+log:
+  level: "info"
+  console: True

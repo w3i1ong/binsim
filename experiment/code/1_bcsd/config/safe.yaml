@@ -1,0 +1,78 @@
+name: safe
+
+common:
+  record-dir: "./record/safe"
+  log:
+    level: "info"
+    file: True
+
+model:
+  type: "SAFE"
+  kwargs:
+    ins2vec: "/home/anonymous/Documents/binsim-corpus/processed/trex/data/TokenCFG/default/model/InsStrSeq/ins2vec/all-in-one.wv"
+    out-dim: 100
+    rnn_state_size: 50
+    rnn_layers: 1
+
+
+dataset:
+  type: 'InsStrSeq'
+  path: '/home/anonymous/Documents/binsim-dataset/processed/trex/'
+  name: 'default'
+  merge: 'default'
+  kwargs:
+    ins2vec: "/home/anonymous/Documents/binsim-corpus/processed/trex/data/TokenCFG/default/model/InsStrSeq/ins2vec/all-in-one.wv"
+
+
+train:
+  general:
+    epoch: 100
+    backward-steps: 1
+    gpu: 1
+    mixed-precision: False
+    num-workers: 10
+    batch-size: 250
+    choice-metric: 'nDCG@10'
+
+  sampler:
+    type: semi-hard-pair
+    kwargs:
+
+  optimizer:
+    type: 'adam'
+    lr: 0.001
+    kwargs:
+    lr-update-epoch:
+    lr-update-scale:
+
+
+  evaluation:
+    val-interval: 5
+    batch-size:
+      classification: 128
+      search: 256
+    metrics:
+      - 'recall@1'
+      - 'mrr@10'
+      - 'hit@10'
+      - 'recall@10'
+      - 'nDCG@10'
+
+test:
+  model:
+    model-source: 'recorded'
+  general:
+    gpu: 0
+    mixed-precision: False
+    num-workers: 10
+    batch-size:
+      classification: 256
+      search: 256
+  evaluation:
+    metrics:
+      - 'auc'
+      - 'recall@1'
+      - 'mrr@10'
+      - 'recall@10'
+      - 'nDCG@10'
+

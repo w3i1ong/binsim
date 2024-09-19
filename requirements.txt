@@ -1,0 +1,16 @@
+six~=1.16.0
+torch~=2.0.0
+gensim~=4.3.2
+tqdm~=4.64.0
+numpy~=1.24.3
+dgl~=1.1.2
+scikit-learn~=1.0.2
+mknapsack~=1.1.12
+capstone~=5.0.0
+networkx~=2.8
+scipy~=1.8.0
+matplotlib~=3.7.1
+transformers~=4.32
+cython
+pandas
+pyelftools
