@@ -45,4 +45,4 @@ pip install .
 > Note: We have implemented an experimental PyTorch operator for TreeLSTM and DAGGRU, which can significantly speed up the training process. If you want to use it, you have to make sure the cuda is available and the `nvcc` is installed. 
 
 # Reproducing Experiments
-We provide a guideline for reproducing the experiments in our paper. You can find it [here](./Reproducing-Guildline.md).
+We provide a guideline for reproducing the experiments in our paper. You can find it [here](./Reproducing-Guideline.md).
