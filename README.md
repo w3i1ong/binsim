@@ -1,21 +1,17 @@
 # BinSim: Binary Code Similarity Detection with Neural Networks
 
-BinSim is a python package for Binary Code Similarity Detection.
-It currently implements several neural network models for binary code similarity detection, including:
+> This repository is the official implementation of the paper "RCFG2Vec: Considering Long-Distance Dependency for Binary Code Similarity Detection".
+
+> This repository was forked from a private repository. Before uploading to GitHub, I removed some private scripts, which may lead to errors during execution. If you encounter any errors, please open an issue on GitHub, and I will address it as soon as possible.
+
+Our codes are organized as a python package to facilitate fair comparison of different models. It currently implements several neural network models for binary code similarity detection, including:
 1. Gemini [\[paper\]](https://arxiv.org/abs/1708.06525) [\[code\]](lib/binsim/neural/nn/model/gemini.py) 
 2. SAFE [\[paper\]](https://arxiv.org/abs/1811.05296) [\[code\]](lib/binsim/neural/nn/model/safe.py)
 3. GraphEmbed [\[paper\]](https://ieeexplore.ieee.org/document/9797388)[\[code\]](lib/binsim/neural/nn/model/i2v_rnn.py)
 4. jTrans [\[paper\]](https://arxiv.org/abs/2205.12713) [\[code\]](lib/binsim/neural/nn/model/jtrans.py)
 5. alpha-diff [\[paper\]](https://ieeexplore.ieee.org/document/9000005) [\[code\]](lib/binsim/neural/nn/model/alphadiff.py)
-6. RCFG2Vec [\[code\]](lib/binsim/neural/nn/model/rcfg2vec.py)
+6. RCFG2Vec [\[paper\]]()[\[code\]](lib/binsim/neural/nn/model/rcfg2vec.py)
 7. Asteria [\[paper\]](https://arxiv.org/abs/2108.06082) [\[code\]](lib/binsim/neural/nn/model/treelstm.py)
-8. GMN(not fully implemented yet)
-
-It also implements several language models for binary code, including:
-
-1. Asm2Vec [\[paper\]](https://ieeexplore.ieee.org/document/8835340)
-2. [ins2vec]()(not fully implemented)
-
 
 # Installation
 ### 0. System Requirements

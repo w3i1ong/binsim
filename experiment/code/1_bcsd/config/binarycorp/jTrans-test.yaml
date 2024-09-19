@@ -1,6 +1,6 @@
 model:
   model-source: 'pretrained'
-  pretrained-weights: '/path/to/your/root/processed-dataset/models/jTrans-finetune'
+  pretrained-weights: '/path/to/your/root/models/jTrans-finetune'
 general:
   gpu: 0
   random-seed: 0

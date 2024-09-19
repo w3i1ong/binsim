@@ -1,0 +1,9 @@
+model:
+  name: 'ins2vec'
+  corpus: /path/to/your/root/processed-dataset/binarycorp/TokenCFG/train/corpus.txt
+  model-file: /path/to/your/root/processed-dataset/binarycorp/TokenCFG/ins2vec-default.pkl
+  model_kwargs:
+    embed_dim: 100
+    workers: 20
+    min_count: 0
+    epoch: 10
