@@ -423,12 +423,8 @@ class InsCFGNormalizer(CFGNormalizerBase):
         # split the operands
         while idx < length:
             idx, operand = InsCFGNormalizer._next_operand(ins, idx)
-            try:
-                instruction.extend(InsCFGNormalizer._parse_operand_mips(operand))
-                opnd_num += 1
-            except:
-                raise ValueError(f"Meet error while processing operand: {operand} in instruction: {ins_str}. "
-                                 f"Token types: {[token.type.name for token in operand]}")
+            instruction.extend(InsCFGNormalizer._parse_operand_mips(operand))
+            opnd_num += 1
         instruction[0] = opnd_num
         return instruction
 
@@ -501,29 +497,32 @@ class InsCFGNormalizer(CFGNormalizerBase):
         for token_index, token in enumerate(ins):
             token.text = token.text.strip()
             # skip empty TextTokens
-            if token.type == TokenType.TextToken and len(token.text) == 0:
+            if len(token.text) == 0:
                 continue
 
             match token.type:
-                case TokenType.EndMemoryOperandToken:
-                    rightBracket, comma, leftBrace = InstructionTextToken(TokenType.EndMemoryOperandToken, ']'), \
-                        InstructionTextToken(TokenType.OperandSeparatorToken, ','), \
-                        InstructionTextToken(TokenType.TextToken, '{')
-                    match token.text:
-                        case ']':
-                            tokens.append(token)
-                        case '],':
-                            tokens.extend([rightBracket, comma])
-                        case '], {':
-                            tokens.extend([rightBracket, comma, leftBrace])
-                        case '], #':
-                            tokens.extend([rightBracket, comma, InstructionTextToken(TokenType.TextToken, '#')])
-                        case ']!':
-                            token.text = ']'
-                            tokens.append(token)
-                        case _:
-                            raise ValueError(
-                                f"Meet an unknown token: {token.text} while processing instruction: {ins}.")
+                case TokenType.BraceToken:
+                    if token.text.startswith(']'):
+                        rightBracket, comma, leftBrace = InstructionTextToken(TokenType.BraceToken, ']'), \
+                            InstructionTextToken(TokenType.OperandSeparatorToken, ','), \
+                            InstructionTextToken(TokenType.BraceToken, '{')
+                        match token.text:
+                            case ']':
+                                tokens.append(token)
+                            case '],':
+                                tokens.extend([rightBracket, comma])
+                            case '], {':
+                                tokens.extend([rightBracket, comma, leftBrace])
+                            case ']!':
+                                token.text = ']'
+                                tokens.append(token)
+                            case _:
+                                raise ValueError(
+                                    f"Meet an unknown token: {token.text} while processing instruction: {ins}.")
+                    elif token.text in ["{", "}", '[']:
+                        tokens.append(token)
+                    else:
+                        raise ValueError(f"Meet an unknown token: {token.text} while processing instruction: {ins}.")
                 case TokenType.TextToken:
                     if len(token.text) <= 2 or token.text.isalnum():
                         tokens.append(token)
@@ -565,11 +564,8 @@ class InsCFGNormalizer(CFGNormalizerBase):
         result = [0, mnemonic.text]
         opnd_num = 0
         for opnd in operands:
-            try:
-                result.extend(InsCFGNormalizer._parse_operand_arm(opnd, bits=bits))
-                opnd_num += 1
-            except Exception as e:
-                logger.error(f"Meet error while processing operand: {opnd} in instruction: \"{ins_text}\", skipped.")
+            result.extend(InsCFGNormalizer._parse_operand_arm(opnd, bits=bits))
+            opnd_num += 1
         result[0] = opnd_num
         return result
 
@@ -610,13 +606,13 @@ class InsCFGNormalizer(CFGNormalizerBase):
                     raise ValueError(f"Meet error while processing operand: {operand}. "
                                      f"Expected an Integer or FloatingPoint, but got {operand[1].type.name}")
         # memory operands
-        if operand[0].type == TokenType.BeginMemoryOperandToken:
+        if operand[0].type == TokenType.BraceToken and operand[0].text == "[":
             # remove postfix !, as we currently don't use it.
             if operand[-1].text == '!':
                 operand.pop()
                 token_number -= 1
             # current operand is a memory operand in the form of [...]
-            if operand[-1].type == TokenType.EndMemoryOperandToken:
+            if operand[-1].type == TokenType.BraceToken and operand[-1].text == ']':
                 base, offset, index, shift, shift_op = None, 0, None, 0, \
                     SpecialTokens.NoShift
                 idx = 1
@@ -634,15 +630,17 @@ class InsCFGNormalizer(CFGNormalizerBase):
                             index = cur_token.text
                         continue
                     # offset
-                    elif cur_token.text == '#' or cur_token.text == ', #':
+                    elif cur_token.text == '#':
                         assert operand[idx].type == TokenType.IntegerToken
                         offset = operand[idx].value
                         idx += 1
                         continue
                     # shift or extend
-                    elif cur_token.type == TokenType.TextToken:
-                        if InsCFGNormalizer.is_arm_shift(cur_token.text) or InsCFGNormalizer.is_arm_extend(
-                                cur_token.text):
+                    elif cur_token.type == TokenType.OperationToken:
+                        if InsCFGNormalizer.is_arm_extend(cur_token.text):
+                            shift_op = cur_token.text
+                            continue
+                        elif InsCFGNormalizer.is_arm_shift(cur_token.text):
                             if index is None:
                                 index, base = base, index
                             shift_op = cur_token.text
@@ -652,7 +650,7 @@ class InsCFGNormalizer(CFGNormalizerBase):
                             elif operand[idx].type == TokenType.RegisterToken:
                                 raise ValueError(f"Meet error while processing operand: {operand}, "
                                                  f"the shift value is a register.")
-                            elif operand[idx].type != TokenType.EndMemoryOperandToken:
+                            else:
                                 raise ValueError(f"Meet error while processing operand: {operand}, "
                                                  f"expected a register or an immediate value or a closing bracket, "
                                                  f"but got {operand[idx].text}")
@@ -674,7 +672,7 @@ class InsCFGNormalizer(CFGNormalizerBase):
                 return ARMMemOperand(base=base, disp=InsCFGNormalizer.normalize_imm(offset),
                                      index=index, shift_type=shift_op,
                                      shift_value=SpecialTokens.shift_value(shift))
-            elif operand[1].type == TokenType.RegisterToken and (operand[2].text == '], #' or operand[2].text == '],'):
+            elif operand[1].type == TokenType.RegisterToken and operand[2].text == ']' and operand[3].text == ',':
                 return ARMMemOperand(base=operand[1].text, disp=0, index=SpecialTokens.NoREG,
                                      shift_type=SpecialTokens.NoShift,
                                      shift_value=SpecialTokens.shift_value(0))
@@ -746,6 +744,7 @@ class InsCFGNormalizer(CFGNormalizerBase):
         elif len(operand) == 2:
             if operand[0].type == TokenType.RegisterToken:
                 return REGOperand(reg=operand[0].text)
+            # -<reg>
             elif operand[0].text == '-' and operand[1].type == TokenType.RegisterToken:
                 return REGOperand(reg=operand[1].text)
 
@@ -812,11 +811,10 @@ class InsCFGNormalizer(CFGNormalizerBase):
         operand = []
         for token in tokens:
             token.text = token.text.strip()
-            if token.type == TokenType.TextToken:
-                if len(token.text) == 0:
-                    continue
-                elif token.text.startswith('{') and token.text.endswith('}'):
-                    continue
+            if len(token.text) == 0:
+                continue
+            elif token.text.startswith('{') and token.text.endswith('}'):
+                continue
             operand.append(token)
 
         if len(operand) == 1:
@@ -863,15 +861,16 @@ class InsCFGNormalizer(CFGNormalizerBase):
                     else:
                         index = cur_token.text
                 elif cur_token.type == TokenType.IntegerToken:
-                    if operand[i - 1].text.strip() == '-':
-                        disp = -cur_token.value
-                    else:
-                        if operand[i - 1].text.strip() == '*':
-                            scale = cur_token.value
+                    value = cur_token.value
+                    match operand[i-1].text:
+                        case "-":
+                            disp = -value
+                        case "*":
+                            scale = value
                             if index is None:
                                 index, base = base, index
-                        else:
-                            disp = cur_token.value
+                        case _:
+                            disp = value
                 elif cur_token.text.strip() == 'rel':
                     special_token = SpecialTokens.GlobalMem
                     assert operand[i + 2].text.strip() == ']', f"Meet an unknown memory operand: {operand}."

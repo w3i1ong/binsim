@@ -106,15 +106,15 @@ Then, you can train and evaluate most models with the following command:
 ```shell
 cd ${ROOT}
 # train
-python experiment/common/train-or-test/train-siamese.py --config experiment/code/1_bcsd/config/trex/ACFG/RCFG2Vec.yaml train
+python experiment/common/train-or-test/train-siamese.py --config experiment/code/1_bcsd/config/trex/RCFG2Vec.yaml train
 # test
-python experiment/common/train-or-test/train-siamese.py --config experiment/code/1_bcsd/config/trex/ACFG/RCFG2Vec.yaml test --test-config experiment/code/1_bcsd/config/trex/ACFG/common-test.yaml
+python experiment/common/train-or-test/train-siamese.py --config experiment/code/1_bcsd/config/trex/RCFG2Vec.yaml test --test-config experiment/code/1_bcsd/config/trex/common-test.yaml
 ```
 For `jTrans`, we directly use its pretrained model, and you need to use "jTrans-test.yaml" as the test configuration file.
 ``` shell
 cd ${ROOT}
 # test jTrans
-python experiment/common/train-or-test/train-siamese.py --config experiment/code/1_bcsd/config/trex/ACFG/jTrans.yaml test --test-config experiment/code/1_bcsd/config/trex/ACFG/jTrans-test.yaml
+python experiment/common/train-or-test/train-siamese.py --config experiment/code/1_bcsd/config/trex/jTrans.yaml test --test-config experiment/code/1_bcsd/config/trex/jTrans-test.yaml
 ```
 > note: In our paper, we directly use the pre-trained model of `jTrans`, and we don't pay enough attention to the training process of `jTrans` and we cannot guarantee the correctness of the training process of `jTrans` in the current version.
 
