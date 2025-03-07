@@ -1,5 +1,5 @@
 six~=1.16.0
-# torch~=2.0.0
+torch~=2.0.0
 gensim~=4.3.2
 tqdm~=4.65.0
 dgl~=1.1.2
@@ -22,6 +22,5 @@ tensorflow==2.8.0
 bert_pytorch
 pandas==1.4.4
 accelerate
-mambda-ssm
 
 
