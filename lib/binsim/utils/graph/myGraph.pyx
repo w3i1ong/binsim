@@ -25,9 +25,9 @@ cdef class pyGraph:
     def findStronglyConnectedComponents(self):
         return self.objPtr.findStronglyConnectedComponents()
 
-    def toDAG(self, k:int=0):
+    def toDAG(self, max_node):
         cdef vector[int] nodeId, src, dst
-        self.objPtr.toDAG(nodeId, src, dst, k)
+        self.objPtr.toDAG(nodeId, src, dst, max_node)
         return nodeId, (src, dst)
 
     def findStronglyConnectedComponents(self):

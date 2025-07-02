@@ -17,8 +17,6 @@ Our codes are organized as a python package to facilitate fair comparison of dif
 ### 0. System Requirements
 We have tested the code on `Ubuntu 22.04 LTS` with `Python 3.10`. 
 
-> Note: We have meet several problems when installing the python binding of `rocksdb` on other systems. Maybe compiling `rocksdb` from source code can solve the problem.
-
 We use [BinaryNinja](https://www.binary.ninja) and [IDA pro](https://hex-rays.com/IDA-pro/) to disassemble the binary code and extract necessary information. So before running the code, you should install them and have a valid license. Additionally, for binaryninja, you should install its python binding.
 
 ### 1. Install Necessary Libraries

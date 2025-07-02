@@ -2,7 +2,7 @@ import os
 import shutil
 
 import filelock
-import rocksdb
+import rocksdict
 import pickle
 import hashlib
 import multiprocessing
@@ -152,7 +152,10 @@ class ExtractorBase(ABC):
                 cfgs = new_cfgs
                 lock_file = f'{dataset_dir}.lock'
                 with FileLock(lock_file):
-                    db = rocksdb.DB(dataset_dir, rocksdb.Options(create_if_missing=True))
+                    options = rocksdict.Options(raw_mode=True)
+                    db = rocksdict.Rdict(dataset_dir, 
+                                         options=options,
+                                         access_type=rocksdict.AccessType.read_write())
                     for content_hash, data in results:
                         db.put(content_hash.encode(), data)
                     del db

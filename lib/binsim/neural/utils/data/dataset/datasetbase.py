@@ -1,7 +1,7 @@
 import dgl
 import torch
 import random
-import rocksdb
+import rocksdict
 import numpy as np
 from itertools import chain
 from abc import abstractmethod
@@ -49,8 +49,11 @@ class SampleDatasetBase(Dataset):
     @property
     def neural_input_cache_file(self):
         if self._neural_input_cache_rocks_db is None:
-            self._neural_input_cache_rocks_db = rocksdb.DB(self._neural_input_cache_rocks_file,
-                                                           rocksdb.Options(), read_only=True)
+            options = rocksdict.Options(raw_mode=True)
+            options.create_if_missing(True)
+            self._neural_input_cache_rocks_db = rocksdict.Rdict(self._neural_input_cache_rocks_file, 
+                                                                options=options, 
+                                                                access_type=rocksdict.AccessType.read_only())
         return self._neural_input_cache_rocks_db
 
     @staticmethod
@@ -120,7 +123,10 @@ class RandomSamplePairDatasetBase(Dataset):
     @property
     def neural_input_cache_file(self):
         if self._neural_input_cache_rocks_db is None:
-            self._neural_input_cache_rocks_db = rocksdb.DB(self._neural_input_cache_rocks_file, rocksdb.Options(), read_only=True)
+            options = rocksdict.Options(raw_mode=True)
+            self._neural_input_cache_rocks_db = rocksdict.Rdict(self._neural_input_cache_rocks_file, 
+                                                                options=options,
+                                                                access_type=rocksdict.AccessType.read_only())
         return self._neural_input_cache_rocks_db
 
     @property

@@ -17,11 +17,9 @@ psutil~=5.9.4
 filelock~=3.12.2
 pybind11~=2.11.1
 PyYAML~=6.0.1
-rocksdb
-tensorflow==2.8.0
+rocksdict
 bert_pytorch
 pandas==1.4.4
 accelerate
-mambda-ssm
 
 

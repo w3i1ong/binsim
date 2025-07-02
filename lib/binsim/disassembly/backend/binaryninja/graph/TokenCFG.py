@@ -26,7 +26,8 @@ class TokenCFG(BinsimCFG):
                  features: Dict[int, List[str]],
                  func_hash: str,
                  func_arch: str,
-                 ins_num: int):
+                 ins_num: int,
+                 entry_points: List[int] = None):
         """
         Build a token CFG from the given adjacency list and features.
         :param function_name: The name of the function.
@@ -36,7 +37,7 @@ class TokenCFG(BinsimCFG):
         :param func_arch: The architecture of the function.
         """
         super(TokenCFG, self).__init__(function_name, func_hash=func_hash, func_arch=func_arch,
-                                       features=features, adj_list=adj_list, ins_num=ins_num)
+                                       features=features, adj_list=adj_list, ins_num=ins_num, entry_points=entry_points)
         self._mode = TokenCFGMode.TOKEN
 
     def unique_tokens(self) -> Set[Union[str, int]]:

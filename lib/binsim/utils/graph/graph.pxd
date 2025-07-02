@@ -32,7 +32,7 @@ cdef extern from "graph.h" namespace "binsim":
         void addEdge(int src, int dst)
         void addEdges(vector[int]&src, vector[int]&dst)
         vector[int] findStronglyConnectedComponents()
-        void toDAG(vector[int]& nodeId, vector[int]&edgeSrc, vector[int]&edgeDst, int k)
+        void toDAG(vector[int]& nodeId, vector[int]&edgeSrc, vector[int]&edgeDst, int max_node)
         vector[int] calcDominatorTree()
         pair[Graph, vector[set[int]]] reduce()
 

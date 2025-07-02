@@ -35,13 +35,13 @@ namespace binsim{
         [[nodiscard]] bool isReducible();
         void addEdge(int src, int dst);
         void addEdges(const vector<int>&src, const vector<int>&dst);
-        void toDAG(vector<int>& nodeId, vector<int>& edgeSrc, vector<int>& edgeDst, int k=0);
+        void toDAG(vector<int>& nodeId, vector<int>& edgeSrc, vector<int>& edgeDst, int max_node=2000);
         [[nodiscard]] vector<int> findStronglyConnectedComponents() const;
         [[nodiscard]] vector<set<int>> findStronglyConnectedComponentsOnSubset(const set<int>& subset) const;
         [[nodiscard]] vector<int> calcDominatorTree() const;
         [[nodiscard]] pair<Graph, vector<set<int>>> reduce() const;
         void display();
-        void toReducible();
+        void toReducible(int max_node=2000);
     private:
         void dfsGraph(int cur, int& time,
                       vector<DFSInfo>& dfsInfo,
@@ -51,10 +51,6 @@ namespace binsim{
                       vector<int>& selfLoop) const;
         void dfsOnSubset(vector<bool>& visited, vector<int>& exitTime, const vector<bool> &subsetFlags, int & time) const;
         void internalSCCOnSubset(vector<int> &sccId, const vector<bool>& subsetFlags) const;
-        void internalSCC(vector<int> &sccId,
-                         vector<Edge>& backEdges,
-                         vector<int>& selfLoop,
-                         vector<DFSInfo>& dfsInfo) const;
         int splitSingleNode(int node);
         void splitMultiNode(const set<int>& nodes, const vector<int>& original2new);
         void calcDFSPostOrder(int node, vector<int>& record, vector<bool>& visited) const;

@@ -92,7 +92,7 @@ inline void binsim::Graph::addEdges(const vector<int> &src, const vector<int> &d
 }
 
 // Convert current Control Flow Graph in to Directed Acyclic Graph.
-void binsim::Graph::toDAG(vector<int>& nodeId, vector<int>& edgeSrc, vector<int>& edgeDst, int k){
+void binsim::Graph::toDAG(vector<int>& nodeId, vector<int>& edgeSrc, vector<int>& edgeDst, int max_node){
     edgeDst.clear(), edgeSrc.clear(), nodeId.clear();
     // if current graph is acyclic, just return it.
     if(this->isAcyclic()){
@@ -111,99 +111,38 @@ void binsim::Graph::toDAG(vector<int>& nodeId, vector<int>& edgeSrc, vector<int>
     }
     // if the graph is not reducible, we have to convert it to reducible graph first;
     if(!this->isReducible()){
-        this->toReducible();
-        this->toDAG(nodeId, edgeSrc, edgeDst, k);
-        for(auto& id: nodeId)
-            id = this->nodeTags[id];
-        return;
+        this->toReducible(max_node);
     }
-    // find all the strongly connected components and back edges
+    // find all back edges
     vector<int> sccId;
-    vector<Edge> backEdges;
+    vector<Edge> backEdges, forwardEdges;
+    std::vector<std::vector<int>> crossEdges(this->nodeNum);
     vector<int> selfLoopNodes;
     vector<DFSInfo> dfsInfo(this->nodeNum);
-    this->internalSCC(sccId, backEdges, selfLoopNodes, dfsInfo);
-    vector<set<int> > components(*max_element(sccId.begin(), sccId.end())+1);
-    for(int i = 0; i < this->nodeNum; i++){
-        components[sccId[i]].insert(i);
-    }
-
-    // find all self-loops
-    set<int> selfLoop(selfLoopNodes.begin(), selfLoopNodes.end());
-    nodeId.reserve(this->nodeNum);
-    for(int i = 0; i < this->nodeNum; i++){
-        nodeId.push_back(i);
-    }
+    int time = 0;
+    this->dfsGraph(this->entryNode, time, dfsInfo, backEdges, forwardEdges, crossEdges, selfLoopNodes);
 
     edgeDst.reserve(this->nodeNum), edgeSrc.reserve(this->nodeNum);
     for(int i = 0; i< this->nodeNum; i++){
-        for(auto &next: this->adjList[i]){
-            // skip all back-edges.
-            // If the given graph is reducible, it is clear that,
-            // a.enterTime >= b.enterTime and a.exitTime <= b.exitTime <=> (a,b) is a backward edge.
+        for(int j = 0; j < this->adjList[i].size(); j++){
+            int next = this->adjList[i][j];
             if(dfsInfo[i].enterTime >= dfsInfo[next].enterTime && dfsInfo[i].exitTime <= dfsInfo[next].exitTime){
+                this->adjList[i][j] = this->adjList[i].back();
+                this->adjList[i].pop_back();
+                j --;
                 continue;
             }
-            edgeDst.push_back(next);
-            edgeSrc.push_back(i);
+            edgeSrc.emplace_back(i);
+            edgeDst.emplace_back(next);
         }
     }
 
-    // if k == 0, we don't need to generate duplicates for nodes.
-    if(k == 0)
-        return;
-
-    for(auto & scc: components){
-        // If the component consists of only one node and it isn't in a self-loop, just skip it.
-        // We will not duplicate it.
-        if(scc.size() == 1 && selfLoop.find(*scc.begin()) == selfLoop.end()) {
-            continue;
-        }
-        vector<Edge> sccInternalEdges, sccOutEdges, sccBackEdges;
-        for(auto node: scc){
-            for(auto &next: this->adjList[node]){
-                if(scc.count(next)){
-                    if(dfsInfo[node].enterTime >= dfsInfo[next].enterTime && dfsInfo[node].exitTime <= dfsInfo[next].exitTime)
-                        sccBackEdges.emplace_back(node, next);
-                    else
-                        sccInternalEdges.emplace_back(node, next);
-                }
-                else{
-                    sccOutEdges.emplace_back(node, next);
-                }
-            }
-        }
-
-        map<int,int> node2base;
-        for(auto node: scc){
-            node2base[node] = nodeId.size();
-            for(int i = 0; i< k; i++)
-                nodeId.push_back(node);
-        }
-        for(auto &edge: sccInternalEdges){
-            for(int i = 0; i< k; i++){
-                edgeSrc.push_back(node2base[edge.src]+i);
-                edgeDst.push_back(node2base[edge.dst]+i);
-            }
-
-        }
-        for(auto &edge: sccOutEdges){
-            for(int i = 0; i< k; i++){
-                edgeSrc.push_back(node2base[edge.src]+i);
-                edgeDst.push_back(edge.dst);
-            }
-        }
-        if(k>0) {
-            for (auto &edge: sccBackEdges) {
-                for (int i = 1; i < k; i++) {
-                    edgeSrc.push_back(node2base[edge.src] + i - 1);
-                    edgeDst.push_back(node2base[edge.dst] + i);
-                }
-                edgeSrc.push_back(edge.src);
-                edgeDst.push_back(node2base[edge.dst]);
-            }
-        }
+    nodeId.clear();
+    for(int i = 0; i < this->nodeNum; i++){
+        nodeId.emplace_back(this->nodeTags[i]);
     }
+
+    this->modified = true;
 }
 
 void binsim::Graph::dfsGraph(int cur, int& time,
@@ -243,8 +182,10 @@ void binsim::Graph::dfsGraph(int cur, int& time,
     dfsInfo[cur].exitTime = time++;
 }
 
-// check whether the cyclic graph is reducible
-// It is based on the paper [Testing flow graph reducibility](https://dl.acm.org/doi/10.1145/800125.804040)
+/* 
+Check whether the cyclic graph is reducible
+It is based on the paper [Testing flow graph reducibility](https://dl.acm.org/doi/10.1145/800125.804040)
+*/ 
 void binsim::Graph::checkAcyclicReducible() {
     vector<DFSInfo> dfsInfo(this->nodeNum);
     vector<Edge> backEdges, forwardEdges;
@@ -428,59 +369,6 @@ void binsim::Graph::internalSCCOnSubset(vector<int> &sccId, const vector<bool> &
 }
 
 
-
-void binsim::Graph::internalSCC(vector<int> &sccId,
-                                vector<Edge>& backEdges,
-                                vector<int>& selfLoop,
-                                vector<DFSInfo>&dfsInfo) const{
-    sccId.resize(this->nodeNum, -1);
-    backEdges.resize(0);
-    dfsInfo.resize(this->nodeNum);
-    selfLoop.resize(0);
-    vector<Edge> forwardEdges;
-    vector<vector<int> > crossEdges(this->nodeNum);
-    int time = 0;
-    dfsGraph(this->entryNode, time, dfsInfo,
-             backEdges, forwardEdges, crossEdges, selfLoop);
-    sort(backEdges.begin(), backEdges.end(), [&dfsInfo](const Edge& a, const Edge& b){
-        return dfsInfo[a.dst].enterTime < dfsInfo[b.dst].enterTime;
-    });
-    // find out all the strongly connected components
-    int curSccId = 0;
-    for(auto& edge : backEdges){
-        int u = edge.src, v = edge.dst;
-        if(sccId[u] != -1)
-            continue;
-        if(sccId[v] == -1) {
-            sccId[v] = curSccId;
-            curSccId++;
-        }
-        set<int> nodesToVisit;
-        nodesToVisit.insert(u);
-
-        while(!nodesToVisit.empty()) {
-            u = *nodesToVisit.begin();
-            nodesToVisit.erase(nodesToVisit.begin());
-            sccId[u] = sccId[v];
-
-            while (u != v) {
-                for(auto nxt : crossEdges[u]){
-                    if(sccId[nxt] == -1)
-                        nodesToVisit.insert(nxt);
-                }
-                u = dfsInfo[u].father;
-                sccId[u] = sccId[v];
-            }
-        }
-    }
-    for(int i = 0; i< this->nodeNum; i++){
-        if(sccId[i] == -1){
-            sccId[i] = curSccId;
-            curSccId++;
-        }
-    }
-}
-
 void binsim::Graph::calcDFSPostOrder(int node, vector<int>& record, vector<bool>& visited) const {
     visited[node] = true;
     for(auto &next: this->adjList[node]){
@@ -663,7 +551,7 @@ inline void calculate_original2new(vector<int>&original2new, const vector<set<in
 }
 
 // Make current control flow graph reducible with controlled node splitting.
-void binsim::Graph::toReducible() {
+void binsim::Graph::toReducible(int max_node) {
     // Apply T1 and T2 transformation repeatedly.
     auto reduced_pairs = this->reduce();
     auto reduced_graph = reduced_pairs.first;
@@ -688,6 +576,10 @@ void binsim::Graph::toReducible() {
         // node splitting
         int old_reduced_graph_size = reduced_graph.nodeNum;
         int dup_num = reduced_graph.splitSingleNode(selected_node);
+        if(dup_num * new2original[selected_node].size() + this->nodeNum > max_node){
+            // if the number of nodes after splitting exceeds the maximum node number, we stop splitting.
+            break;
+        }
         int old_node_num = this->nodeNum;
         int number_of_nodes_to_dup = new2original[selected_node].size();
         this->splitMultiNode(new2original[selected_node], original2new);

@@ -61,7 +61,8 @@ class InsCFG(TokenCFG):
                  features: Dict[int, List],
                  func_hash: str,
                  func_arch: str,
-                 ins_num: int):
+                 ins_num: int,
+                 entry_points=None):
         """
         Build a token CFG from the given adjacency list and features.
         :param function_name: The name of the function.
@@ -69,13 +70,15 @@ class InsCFG(TokenCFG):
         :param features: A list, in which each element is a list of tokens.
         :param func_hash: The hash of the function, used to remove duplicate functions.
         :param func_arch: The architecture of the function.
+        :param entry_points: The 
         """
         super().__init__(function_name,
                          adj_list=adj_list,
                          features=features,
                          func_hash=func_hash,
                          func_arch=func_arch,
-                         ins_num=ins_num)
+                         ins_num=ins_num,
+                         entry_points=entry_points)
 
     def unique_tokens(self) -> Set[Union[str, int]]:
         """
@@ -352,7 +355,7 @@ class InsCFGNormalizer(CFGNormalizerBase):
 
         cfg = InsCFG(function.name, adj_list, token_sequences,
                      func_hash=compute_function_hash(function),
-                     func_arch=self.arch, ins_num=instruction_num)
+                     func_arch=self.arch, ins_num=instruction_num, entry_points=entry_points)
         if self._ins2idx is not None:
             cfg.replace_tokens(self._ins2idx)
         return cfg

@@ -43,7 +43,7 @@ def check_dataset_config(config: dict):
                           required_kwargs={'type', 'binary-dir', 'dataset-dir', "cache-dir", "middle-dir",
                                            "arch", "subsets", "compiler"},
                           logger=logger)
-    assert os.path.exists(config['binary-dir']), f'The directory of original binaries({config["binary"]}) does not exist.'
+    assert os.path.exists(config['binary-dir']), f'The directory of original binaries({config["binary-dir"]}) does not exist.'
     config['type'] = GraphType(config['type'])
     config['arch'] = [Arch.from_string(arch) for arch in config['arch']]
     check_generate_subset_config(config['subsets'])

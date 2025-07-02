@@ -91,7 +91,7 @@ class BinsimFunction(ABC):
 
 class BinsimCFG(BinsimFunction):
     def __init__(self, function_name: str, func_hash: str, func_arch, ins_num,  *,
-                 adj_list: Dict[int, List[int]], features):
+                 adj_list: Dict[int, List[int]], features, entry_points: Set[int] = None):
         super().__init__(function_name, func_hash, func_arch, len(adj_list), ins_num=ins_num)
         assert len(adj_list) == len(features), (f"Expect the number of nodes in adj_list({len(adj_list)}) "
                                                 f"and features({len(features)} to be the same.")
@@ -99,7 +99,10 @@ class BinsimCFG(BinsimFunction):
         self._idx2addr = idx2addr
         self._adj_list = adj_list
         self._features = [features[addr] for addr in idx2addr]
-        self._entries = self.__get_entries(adj_list)
+        if entry_points is None:
+            self._entries = self.__get_entries(adj_list)
+        else:
+            self._entries = set([addr2idx[entry] for entry in entry_points])
 
     @staticmethod
     def __get_entries(adj_list):
@@ -180,7 +183,7 @@ class BinsimCFG(BinsimFunction):
 
             # 2. build our fastGraph.
             cfg = fastGraph(self.node_num + 1, edge_src_list, edge_dst_list, 0)
-            nodeId, (U, V) = cfg.toDAG(k=expand_time)
+            nodeId, (U, V) = cfg.toDAG(self.node_num *2)
             # remember to remove the dummy node
             U, V, nodeId = np.array(U), np.array(V), np.array(nodeId)
             valid_index = (U != 0)
